@@ -13,9 +13,9 @@ class DownConv(nn.Module):
         super().__init__()
         self.downconv =   ConvBlock(in_channels, 
                                     out_channels, 
-                                    kernel_size=2,
+                                    kernel_size=4,
                                     stride=2,
-                                    padding=0, 
+                                    padding=1, 
                                     norm=norm,
                                     activation=activation,
                                     bias=False)
