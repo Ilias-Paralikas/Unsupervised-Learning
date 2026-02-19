@@ -4,13 +4,13 @@ model:
   encoder_norm: group_norm_32
   encoder_activation: ReLU
   input_size: [512, 512]
-  number_of_components: 2
-  degrees_of_freedom: 2048
-  vector_dim: 2048
-  vectorizer_linear_layer_dim: [2048]
+  number_of_components: 1
+  degrees_of_freedom: 10000
+  vector_dim: 10000
+  vectorizer_linear_layer_dim: []
   vectorizer_norm: LayerNorm
   vectorizer_activation: ReLU
-  rec_dec_channels: [2048,1024, 512, 256, 128, 64, 32, 16]
+  rec_dec_channels: [512,512, 256, 256, 128, 128, 64, 64]
   rec_dec_first_conv_size: 4
   rec_dec_double_conv: true
   rec_dec_norm: group_norm_32
@@ -29,10 +29,10 @@ model:
   seg_dec_output_layer_activation: Identity
 learning:
   optimizer: Adam
-  lr: 0.0001
+  lr: 0.001
   epochs: 10
-  batch_size: 2
-  loss_fn: L1Loss
+  batch_size: 8
+  loss_fn: MSELoss
   vector_similarity_loss: CosineSimilarity
   segmentation_loss: CrossEntropyLoss
   Augmentations:

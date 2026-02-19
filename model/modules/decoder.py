@@ -8,10 +8,10 @@ class Decoder(nn.Module):
                 out_channels,
                 output_layer_activation,
                 channels,
-                first_conv_size = 4,
-                double_conv=True,
-                norm=nn.BatchNorm2d,
-                activation=nn.ReLU(inplace=True)):
+                first_conv_size,
+                norm,
+                activation,
+                double_conv=True):
  
         super().__init__()
         self.bottleneck_dim = bottleneck_dim
@@ -28,7 +28,7 @@ class Decoder(nn.Module):
                                               stride=1, 
                                               padding=0, 
                                               bias=False,
-                                              norm=self.norm,
+                                              norm=nn.Identity,
                                               activation=self.activation,
                                               Transpose=True)])
         for i in range(len(channels)-1):

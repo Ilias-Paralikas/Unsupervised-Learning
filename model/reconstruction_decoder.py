@@ -55,26 +55,26 @@ class ReconstructionDecoder(nn.Module):
                                first_conv_size=self.first_conv_size,
                                norm=self.decoder_norm)
           
-    def forward(self, x):
-        batch_size = x.shape[0]
-        # pass the encoder output through each vectorizer
-        component_vectors = torch.stack([v(x) for v in self.vectorizers], dim=1)
-       # Use reshape to avoid Contiguity errors
-        flat_shape = (batch_size * self.number_of_components, -1, 1, 1)
-        vectors = component_vectors.reshape(flat_shape)
-
-        x = self.decoder(vectors)
-
-        # Use -1 to let PyTorch infer the spatial dimensions (H, W) 
-        # so the code doesn't break if you change the decoder resolution
-        x = x.reshape(batch_size, self.number_of_components, self.out_channels, x.shape[-2], x.shape[-1])
-        return x, component_vectors
     # def forward(self, x):
+    #     batch_size = x.shape[0]
+    #     # pass the encoder output through each vectorizer
     #     component_vectors = torch.stack([v(x) for v in self.vectorizers], dim=1)
+    #    # Use reshape to avoid Contiguity errors
+    #     flat_shape = (batch_size * self.number_of_components, -1, 1, 1)
+    #     vectors = component_vectors.reshape(flat_shape)
 
-    #     reconstructions = []
-    #     for i in range(self.number_of_components):
-    #         v= component_vectors[:,i].unsqueeze(-1).unsqueeze(-1)
-    #         reconstructions.append(self.decoder(v)) 
-    #     reconstructions = torch.stack(reconstructions, dim=1)
-    #     return reconstructions, component_vectors
+    #     x = self.decoder(vectors)
+
+    #     # Use -1 to let PyTorch infer the spatial dimensions (H, W) 
+    #     # so the code doesn't break if you change the decoder resolution
+    #     x = x.reshape(batch_size, self.number_of_components, self.out_channels, x.shape[-2], x.shape[-1])
+    #     return x, component_vectors
+    def forward(self, x):
+        component_vectors = torch.stack([v(x) for v in self.vectorizers], dim=1)
+
+        reconstructions = []
+        for i in range(self.number_of_components):
+            v= component_vectors[:,i].unsqueeze(-1).unsqueeze(-1)
+            reconstructions.append(self.decoder(v)) 
+        reconstructions = torch.stack(reconstructions, dim=1)
+        return reconstructions, component_vectors

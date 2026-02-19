@@ -49,6 +49,7 @@ REGISTRY = {
     # Optimization
     "Adam": torch.optim.Adam,
     "L1Loss": nn.L1Loss(),
+    "MSELoss":nn.MSELoss(),
     "CosineSimilarity": compute_component_similarity_loss,
     "CrossEntropyLoss": nn.CrossEntropyLoss()
 

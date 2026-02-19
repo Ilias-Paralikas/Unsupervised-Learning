@@ -4,11 +4,11 @@ from .blocks import ConvBlock, DownConv
 
 class Encoder(nn.Module):
     def __init__(self, 
-                 in_channels=3, 
-                 channels= [32, 64, 128, 256, 512, 1024,2048],
-                 norm=nn.BatchNorm2d,
-                 activation=nn.ReLU(inplace=True),
-                 input_size = (512,512)):
+                 in_channels, 
+                 channels,
+                 norm,
+                 activation,
+                 input_size):
         super().__init__()
         
         self.in_channels = in_channels
