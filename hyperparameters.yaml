@@ -1,37 +1,49 @@
 model:
   in_channels: 3
-  encoder_channels: [32, 64, 128, 256, 512, 1024, 2048]
+  encoder_channels: [64, 128, 128, 256, 256, 512, 512]
   encoder_norm: group_norm_32
-  encoder_activation: ReLU
+  encoder_activation: LeakyReLU
   input_size: [512, 512]
-  number_of_components: 1
-  degrees_of_freedom: 10000
-  vector_dim: 10000
+  number_of_components: 2
+  degrees_of_freedom: 2048
+  vector_dim: 2048
   vectorizer_linear_layer_dim: []
   vectorizer_norm: LayerNorm
-  vectorizer_activation: ReLU
-  rec_dec_channels: [2048, 1024, 512, 256, 128, 64, 32, 16]
+  vectorizer_activation: LeakyReLU
+  rec_dec_channels: [512, 512, 256, 256, 128, 128, 64, 64]
   rec_dec_first_conv_size: 4
   rec_dec_double_conv: true
-  rec_dec_norm: 
-  rec_dec_activation: ReLU
+  rec_dec_norm: group_norm_32
+  rec_dec_activation: LeakyReLU
   rec_dec_output_layer_activation: Sigmoid
   seg_dec_linear_in_neurons: 4096
   seg_dec_linear_out_neurons: 2048
   seg_dec_linear_layer_dim: []
   seg_dec_linear_norm: group_norm_32
-  seg_dec_linear_activation: ReLU
-  seg_dec_channels: [2048, 1024, 512, 256, 128, 64, 32, 16]
+  seg_dec_linear_activation: LeakyReLU
+  seg_dec_channels: [512, 512, 256, 256, 128, 128, 64, 64]
   seg_dec_first_conv_size: 4
   seg_dec_double_conv: true
   seg_dec_norm: group_norm_32
-  seg_dec_activation: ReLU
+  seg_dec_activation: LeakyReLU
   seg_dec_output_layer_activation: Identity
+
+discriminator:
+  in_channels: 3
+  encoder_channels: [32, 64, 128, 256, 512, 1024, 2048]
+  encoder_norm: group_norm_32
+  encoder_activation: LeakyReLU
+  input_size: [512, 512]
+  # These were causing the error:
+  linear_out_neurons: 1
+  linear_layer_dims: [1024, 256] 
+  linear_norm: LayerNorm
+  linear_activation: LeakyReLU
 learning:
   optimizer: Adam
   lr: 0.001
   epochs: 10
-  batch_size: 8
+  batch_size: 2
   loss_fn: L1Loss
   vector_similarity_loss: CosineSimilarity
   segmentation_loss: CrossEntropyLoss
@@ -40,3 +52,15 @@ learning:
     translate: [0.1, 0.2]
     scale: [0.8, 1.2]
     shear: 15
+
+  gan:
+    adv_loss_fn: MSELoss     # LSGAN
+    lambda_recon: 1.0
+    lambda_adv: 0.01
+
+    g_lr: 0.0002
+    d_lr: 0.0002
+    betas: [0.5, 0.999]
+
+    d_steps: 1
+    g_steps: 1

@@ -48,6 +48,7 @@ class SegmentationDecoder(nn.Module):
                                output_layer_activation=self.decoder_output_layer_activation,
                                double_conv=self.double_conv,
                                first_conv_size=self.first_conv_size,
+                               activation=self.decoder_activation,
                                norm=self.decoder_norm)
           
     def forward(self, x):

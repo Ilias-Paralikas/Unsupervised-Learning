@@ -42,6 +42,7 @@ REGISTRY = {
     
     # Activations
     "ReLU": nn.ReLU(inplace=True),
+    "LeakyReLU": nn.LeakyReLU(negative_slope=0.2),
     "Sigmoid": nn.Sigmoid(),
     "Softmax": nn.Softmax(dim=1),
     "Identity": nn.Identity(),

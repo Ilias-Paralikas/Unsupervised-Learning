@@ -1,2 +1,3 @@
 from .original_dataset import CityscapesDataset
 from .preprocessed_dataset import PreprocessedCityscapesDataset
+from .progan_dataset import ProGanCityscapesDataset
