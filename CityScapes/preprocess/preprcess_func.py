@@ -10,7 +10,7 @@ def preprocess_cityscapes(root='./CityScapes/data',
                           output_root='./preprocessed_data',
                           sizes=[512],
                           preprocess_labels=True,
-                          output_activation="sigmoid"):
+                          output_activation="tanh"):
     """
     Args:
         sizes: list of ints or list of (h,w) tuples
