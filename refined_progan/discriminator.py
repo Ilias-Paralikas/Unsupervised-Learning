@@ -27,7 +27,7 @@ class Discriminator(nn.Module):
                 DownsampleBlock(self.channels[-2]+self.img_channels+1,
                                           self.channels[-1],
                                           kernel_size=4),
-                L2NormConv2d(self.channels[-1],1,1,1,0)
+                nn.Conv2d(self.channels[-1],1,1,1,0)
 
         )
     

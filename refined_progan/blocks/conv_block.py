@@ -27,12 +27,12 @@ class ConvBlock(nn.Module):
         
         # 2. Define the convolution layer with explicit keywords
         if transpose:
-            self.conv = L2NormConvTranspose2d(
+            self.conv = nn.ConvTranspose2d(
                 in_channels, out_channels, kernel_size, 
                 stride=stride, padding=padding, bias=bias
             )
         else:
-            self.conv = L2NormConv2d(
+            self.conv = nn.Conv2d(
                 in_channels, out_channels, kernel_size, 
                 stride=stride, padding=padding, bias=bias
             )

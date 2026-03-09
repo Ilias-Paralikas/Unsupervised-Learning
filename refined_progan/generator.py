@@ -46,7 +46,7 @@ class Generator(nn.Module):
         self.rgb_layers = nn.ModuleList()
         for i in range(len(self.channels)):
             self.rgb_layers.append(
-               L2NormConv2d(channels[i],self.img_channels,1,1,0)
+               nn.Conv2d(channels[i],self.img_channels,1,1,0)
             )
         self.activation = nn.Tanh()
      

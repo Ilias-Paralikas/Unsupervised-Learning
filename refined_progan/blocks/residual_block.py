@@ -30,7 +30,7 @@ class ResidualBlock(nn.Module):
                     transpose=False
                 )
             )
-        self.blocks.append(L2NormConv2d(channels, channels, 3, 1, 1, bias=bias))
+        self.blocks.append(nn.Conv2d(channels, channels, 3, 1, 1, bias=bias))
         self.activation = nn.LeakyReLU(0.2, inplace=True)
         self.norm = nn.GroupNorm(num_groups=actual_groups, num_channels=channels)
     def forward(self, x):
