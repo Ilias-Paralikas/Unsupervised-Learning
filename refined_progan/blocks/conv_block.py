@@ -1,13 +1,11 @@
 import torch
 import torch.nn as nn
 
-from .L2_norm_conv import L2NormConv2d
-from .L2_norm_trans_conv import L2NormConvTranspose2d
+from .convs import CustomConv2d
+from .convs import CustomConvTranspose2d
+from .helpers import GroupNormOrNone
 
 
-# Assuming these are in the same directory or correctly imported
-# from .L2_norm_conv import L2NormConv2d
-# from .L2_norm_trans_conv import L2NormConvTranspose2d
 
 class ConvBlock(nn.Module):
     def __init__(self, 
@@ -23,22 +21,22 @@ class ConvBlock(nn.Module):
         
         # 1. Safety check for GroupNorm
         # If out_channels is smaller than groups, reduce groups to match out_channels
-        actual_groups = groups if out_channels % groups == 0 else out_channels
+
         
         # 2. Define the convolution layer with explicit keywords
         if transpose:
-            self.conv = nn.ConvTranspose2d(
+            self.conv = CustomConvTranspose2d(
                 in_channels, out_channels, kernel_size, 
                 stride=stride, padding=padding, bias=bias
             )
         else:
-            self.conv = nn.Conv2d(
+            self.conv = CustomConv2d(
                 in_channels, out_channels, kernel_size, 
                 stride=stride, padding=padding, bias=bias
             )
         
         # 3. Normalization and Activation
-        self.norm = nn.GroupNorm(num_groups=actual_groups, num_channels=out_channels)
+        self.norm = GroupNormOrNone(out_channels, groups)
         self.activation = nn.LeakyReLU(0.2, inplace=True)
 
     def forward(self, x):

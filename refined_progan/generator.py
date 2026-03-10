@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-from .blocks import L2NormConv2d
+from .blocks.convs import CustomConv2d
 from .blocks import ConvBlock
 from .blocks import UpsampleBlock
 
@@ -25,7 +25,8 @@ class Generator(nn.Module):
                                 stride=1, 
                                 padding=0, 
                                 bias=True,
-                                transpose=True
+                                transpose=True,
+                                groups=8
                             ),
                             ConvBlock(in_channels=channels[0], 
                                 out_channels=channels[0], 
@@ -33,6 +34,8 @@ class Generator(nn.Module):
                                 stride=1, 
                                 padding=1, 
                                 bias=True,
+                                groups=8
+
                             )
         )
 

@@ -12,7 +12,7 @@ class DownsampleBlock(nn.Module):
                  kernel_size = 3,
                  depth=2,
                  bias=True,
-                 groups=8,
+                 groups=None,
                  residual = True):
         
         super().__init__()
