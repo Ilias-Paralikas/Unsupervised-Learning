@@ -35,7 +35,6 @@ class Generator(nn.Module):
                                 padding=1, 
                                 bias=True,
                                 groups=8
-
                             )
         )
 

@@ -1,0 +1,6 @@
+z_dim: 512
+channels: [512, 512, 256, 256, 128, 128, 64]
+batch_size: 8
+
+gen_lr : 1.0e-4
+dis_lr : 1.0e-4
