@@ -1,18 +1,25 @@
-# import torch
-# import torch.nn as nn
-# import torch.nn.functional as F
+
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 class CustomConv2d(nn.Module):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, bias=True):
         super().__init__()
-        self.conv = nn.Conv2d(*args, **kwargs)
+        self.stride = stride
+        self.padding = padding
+        self.weight = nn.Parameter(torch.randn(out_channels, in_channels, kernel_size, kernel_size))
+        self.bias = nn.Parameter(torch.zeros(out_channels)) if bias else None
+        
+        # ProGAN runtime scaling factor (He initialization)
+        fan_in = in_channels * (kernel_size ** 2)
+        self.scale = (2 / fan_in) ** 0.5 
 
     def forward(self, x):
-        return self.conv(x)
+        # Scale weights dynamically at runtime
+        return F.conv2d(x, self.weight * self.scale, self.bias, stride=self.stride, padding=self.padding)
+
 
 # class CustomConv2d(nn.Module):
 #     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, bias=True):

@@ -4,6 +4,7 @@ import torch.nn.functional as F
 
 
 from .blocks import DownsampleBlock
+from .blocks import ConvBlock
 
 class Discriminator(nn.Module):
     def __init__(self, 
@@ -16,26 +17,35 @@ class Discriminator(nn.Module):
 
         self.initial_block = DownsampleBlock(self.img_channels,
                                              self.channels[0],
-                                             groups=None)
+                                             norm=False)
         self.blocks = nn.ModuleList()
         for i in range(1,len(self.channels)-1):
             self.blocks.append(
                DownsampleBlock(self.channels[i-1]+self.img_channels,
                                self.channels[i],
-                               groups=None)
+                               norm=False)
             )
 
         self.final_block = nn.Sequential(
-                DownsampleBlock(self.channels[-2]+self.img_channels+1,
-                                          self.channels[-1],
-                                          kernel_size=4,
-                                          groups=None),
+            ConvBlock(self.channels[-2] + self.img_channels + 1,
+                      self.channels[-1],
+                      kernel_size=3,
+                      stride=1,
+                      padding=1,
+                      norm=False),
+            # 2. 4x4 Valid Conv to collapse the 4x4 spatial dimensions to 1x1
+            ConvBlock(self.channels[-1],
+                      self.channels[-1],
+                      kernel_size=4,
+                      stride=1,
+                      padding=0,  # Valid padding avoids pooling
+                      norm=False),
                 nn.Conv2d(self.channels[-1],1,1,1,0)
 
         )
     
     def minibatch_std(self, x):
-        batch_statistics =torch.std(x,dim=0).mean().repeat(x.shape[0],1,x.shape[2],x.shape[3])
+        batch_statistics =torch.std(x,dim=0,unbiased=False).mean().repeat(x.shape[0],1,x.shape[2],x.shape[3])
         return torch.cat([x,batch_statistics],dim=1)
     
     def forward(self, x):

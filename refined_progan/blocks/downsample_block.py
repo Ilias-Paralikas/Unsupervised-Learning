@@ -12,13 +12,13 @@ class DownsampleBlock(nn.Module):
                  kernel_size = 3,
                  depth=2,
                  bias=True,
-                 groups=None,
-                 residual = True):
+                 residual = True,
+                 norm=False):
         
         super().__init__()
         self.residual = residual
-        # 1. Safety check for GroupNorm
-        # If out_channels is smaller than groups, reduce groups to match out_channels
+        self.norm = norm
+
         self.channel_block = ConvBlock(
                     in_channels=in_channels, 
                     out_channels=out_channels,
@@ -26,16 +26,14 @@ class DownsampleBlock(nn.Module):
                     stride=1, 
                     padding=1, 
                     bias=bias,
-                    groups=groups,
+                    norm=self.norm,
                 ) 
 
         self.res_block =ResidualBlock(
                     channels=out_channels, 
                     depth=depth,
                     bias=bias,
-                    groups=groups,
-                    residual=True
-            )
+                    norm=self.norm)
         
         self.avg_pool = nn.AvgPool2d(kernel_size=2, stride=2)
         

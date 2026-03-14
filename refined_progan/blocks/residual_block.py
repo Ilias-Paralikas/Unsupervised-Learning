@@ -3,18 +3,19 @@ import torch.nn as nn
 
 from .convs import CustomConv2d
 from .conv_block import ConvBlock
-from .helpers import GroupNormOrNone
+from .normalizations import PixelNorm
 
 class ResidualBlock(nn.Module):
     def __init__(self, 
                  channels, 
                  depth=2,
                  bias=True,
-                 groups=8,
+                 norm=True,
                  residual = True):
         
         super().__init__()
         self.residual = residual
+        self.norm = norm
         # 1. Safety check for GroupNorm
         # If out_channels is smaller than groups, reduce groups to match out_channels
         self.blocks = nn.ModuleList()
@@ -27,13 +28,14 @@ class ResidualBlock(nn.Module):
                     stride=1, 
                     padding=1, 
                     bias=bias,
-                    groups=groups,
+                    norm=self.norm,
                     transpose=False
                 )
             )
         self.blocks.append(CustomConv2d(channels, channels, 3, 1, 1, bias=bias))
         self.activation = nn.LeakyReLU(0.2, inplace=True)
-        self.norm = GroupNormOrNone(channels, groups)
+        if self.norm:
+            self.norm = PixelNorm()
     def forward(self, x):
 
         identity = x
@@ -43,6 +45,7 @@ class ResidualBlock(nn.Module):
         if self.residual:
             x = x + identity
 
-        x = self.norm(x)
+        if self.norm:
+            x = self.norm(x)
         x = self.activation(x)
         return x
