@@ -12,12 +12,12 @@ class UpsampleBlock(nn.Module):
                  out_channels, 
                  depth=2,
                  bias=True,
-                 norm=True,
+                 use_norm=True,
                  residual = True):
         
         super().__init__()
         self.residual = residual
-        self.norm = norm
+        self.use_norm = use_norm
         # 1. Safety check for GroupNorm
         # If out_channels is smaller than groups, reduce groups to match out_channels
         self.channel_block = ConvBlock(
@@ -27,14 +27,14 @@ class UpsampleBlock(nn.Module):
                     stride=1, 
                     padding=1, 
                     bias=bias,
-                    norm=self.norm
+                    use_norm=self.use_norm
                 ) 
 
         self.res_block =ResidualBlock(
                     channels=out_channels, 
                     depth=depth,
                     bias=bias,
-                    norm= self.norm
+                    use_norm= self.use_norm
             )
         
         

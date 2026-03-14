@@ -26,7 +26,7 @@ class Generator(nn.Module):
                                 padding=0, 
                                 bias=True,
                                 transpose=True,
-                                norm=True
+                                use_norm=True
                             ),
                             ConvBlock(in_channels=channels[0], 
                                 out_channels=channels[0], 
@@ -34,7 +34,7 @@ class Generator(nn.Module):
                                 stride=1, 
                                 padding=1, 
                                 bias=True,
-                                norm=True
+                                use_norm=True
                             )
         )
 

@@ -13,11 +13,11 @@ class DownsampleBlock(nn.Module):
                  depth=2,
                  bias=True,
                  residual = True,
-                 norm=False):
+                 use_norm=False):
         
         super().__init__()
         self.residual = residual
-        self.norm = norm
+        self.use_norm = use_norm
 
         self.channel_block = ConvBlock(
                     in_channels=in_channels, 
@@ -26,19 +26,19 @@ class DownsampleBlock(nn.Module):
                     stride=1, 
                     padding=1, 
                     bias=bias,
-                    norm=self.norm,
+                    use_norm=self.use_norm,
                 ) 
 
         self.res_block =ResidualBlock(
                     channels=out_channels, 
                     depth=depth,
                     bias=bias,
-                    norm=self.norm)
+                    use_norm=self.use_norm)
         
         self.avg_pool = nn.AvgPool2d(kernel_size=2, stride=2)
         
     def forward(self, x):
-        x = self.avg_pool(x)
         x = self.channel_block(x)
         x = self.res_block(x)
+        x = self.avg_pool(x)
         return x

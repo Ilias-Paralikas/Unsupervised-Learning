@@ -17,13 +17,13 @@ class Discriminator(nn.Module):
 
         self.initial_block = DownsampleBlock(self.img_channels,
                                              self.channels[0],
-                                             norm=False)
+                                             use_norm=False)
         self.blocks = nn.ModuleList()
         for i in range(1,len(self.channels)-1):
             self.blocks.append(
                DownsampleBlock(self.channels[i-1]+self.img_channels,
                                self.channels[i],
-                               norm=False)
+                               use_norm=False)
             )
 
         self.final_block = nn.Sequential(
@@ -32,22 +32,40 @@ class Discriminator(nn.Module):
                       kernel_size=3,
                       stride=1,
                       padding=1,
-                      norm=False),
+                      use_norm=False),
             # 2. 4x4 Valid Conv to collapse the 4x4 spatial dimensions to 1x1
             ConvBlock(self.channels[-1],
                       self.channels[-1],
                       kernel_size=4,
                       stride=1,
                       padding=0,  # Valid padding avoids pooling
-                      norm=False),
-                nn.Conv2d(self.channels[-1],1,1,1,0)
+                      use_norm=False),
+            nn.Conv2d(self.channels[-1],1,1,1,0)
 
         )
     
-    def minibatch_std(self, x):
-        batch_statistics =torch.std(x,dim=0,unbiased=False).mean().repeat(x.shape[0],1,x.shape[2],x.shape[3])
-        return torch.cat([x,batch_statistics],dim=1)
-    
+    def minibatch_std(self, x, group_size=4, eps=1e-8):
+        b, c, h, w = x.shape
+        # 1. Fallback for batch size of 1
+        if b == 1:
+            zeros = torch.zeros(b, 1, h, w, device=x.device, dtype=x.dtype)
+            return torch.cat([x, zeros], dim=1)
+        # 2. Adjust group size if it doesn't divide the batch evenly
+        group_size = min(group_size, b)
+        if b % group_size != 0:
+            group_size = b
+            
+        # 3. Grouped statistics with epsilon for numerical stability
+        y = x.view(b // group_size, group_size, c, h, w)
+        var = torch.var(y, dim=1, unbiased=False)
+        std = torch.sqrt(var + eps)
+        
+        # 4. Average over channels and spatial dimensions
+        mean_std = std.mean(dim=[1, 2, 3], keepdim=True)
+        mean_std = mean_std.repeat(1, group_size, 1, h, w).view(b, 1, h, w)
+        
+        return torch.cat([x, mean_std], dim=1)
+
     def forward(self, x):
         y= self.initial_block(x[-1])
         for i in range(len(self.channels)-2):

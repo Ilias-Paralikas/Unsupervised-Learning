@@ -10,12 +10,12 @@ class ResidualBlock(nn.Module):
                  channels, 
                  depth=2,
                  bias=True,
-                 norm=True,
+                 use_norm=True,
                  residual = True):
         
         super().__init__()
         self.residual = residual
-        self.norm = norm
+        self.use_norm = use_norm
         # 1. Safety check for GroupNorm
         # If out_channels is smaller than groups, reduce groups to match out_channels
         self.blocks = nn.ModuleList()
@@ -28,13 +28,13 @@ class ResidualBlock(nn.Module):
                     stride=1, 
                     padding=1, 
                     bias=bias,
-                    norm=self.norm,
+                    use_norm=self.use_norm,
                     transpose=False
                 )
             )
         self.blocks.append(CustomConv2d(channels, channels, 3, 1, 1, bias=bias))
         self.activation = nn.LeakyReLU(0.2, inplace=True)
-        if self.norm:
+        if self.use_norm:
             self.norm = PixelNorm()
     def forward(self, x):
 
@@ -45,7 +45,7 @@ class ResidualBlock(nn.Module):
         if self.residual:
             x = x + identity
 
-        if self.norm:
+        if self.use_norm:
             x = self.norm(x)
         x = self.activation(x)
         return x
