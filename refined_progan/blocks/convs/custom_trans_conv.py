@@ -9,7 +9,7 @@ class CustomConvTranspose2d(nn.Module):
         super().__init__()
         self.stride = stride
         self.padding = padding
-        self.weight = nn.Parameter(torch.randn(out_channels, in_channels, kernel_size, kernel_size))
+        self.weight = nn.Parameter(torch.randn(in_channels, out_channels, kernel_size, kernel_size))
         self.bias = nn.Parameter(torch.zeros(out_channels)) if bias else None
         
         # ProGAN runtime scaling factor (He initialization)

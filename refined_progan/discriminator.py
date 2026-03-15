@@ -15,14 +15,14 @@ class Discriminator(nn.Module):
         self.channels.reverse()
         self.img_channels = img_channels
 
-        self.initial_block = DownsampleBlock(self.img_channels,
+        self.initial_block = ConvBlock(self.img_channels,
                                              self.channels[0],
                                              use_norm=False)
         self.blocks = nn.ModuleList()
-        for i in range(1,len(self.channels)-1):
+        for i in range(len(self.channels)-1):
             self.blocks.append(
-               DownsampleBlock(self.channels[i-1]+self.img_channels,
-                               self.channels[i],
+               DownsampleBlock(self.channels[i]+self.img_channels+1 if i>0 else self.channels[i]+1,
+                               self.channels[i+1],
                                use_norm=False)
             )
 
@@ -66,14 +66,18 @@ class Discriminator(nn.Module):
         
         return torch.cat([x, mean_std], dim=1)
 
-    def forward(self, x):
-        y= self.initial_block(x[-1])
-        for i in range(len(self.channels)-2):
-            y = torch.cat([y,x[-i-2]],dim=1)
-            y = self.blocks[i](y)
 
-        y = torch.cat([y,x[0]],dim=1)
+    def combine_features_rgb(self,rgb,features):
+        return torch.cat([rgb,features],dim=1)
+    
+    def forward(self, x):
+        y = self.initial_block(x[-1])
         y = self.minibatch_std(y)
+
+        for i in range(len(self.channels)-1):
+            y = self.blocks[i](y)
+            y = self.combine_features_rgb(x[-i-2],y)
+            y = self.minibatch_std(y)
+
         y = self.final_block(y)
         return y.view(y.shape[0],-1)
-
