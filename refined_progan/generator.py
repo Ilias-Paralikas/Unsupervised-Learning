@@ -11,11 +11,15 @@ class Generator(nn.Module):
     def __init__(self, 
                  z_dim,
                 channels,
-                img_channels=3):
+                img_channels=3,
+                block_depth=2,
+                residual=True):
         super().__init__()
         self.z_dim = z_dim  
         self.channels = channels.copy()
         self.img_channels = img_channels
+        self.block_depth = block_depth
+        self.residual = residual
 
         # 1. Define the initial convolution layer
         self.initial_conv = nn.Sequential(
@@ -41,14 +45,17 @@ class Generator(nn.Module):
         self.blocks = nn.ModuleList([self.initial_conv])
         for i in range(1,len(self.channels)):
             self.blocks.append(
-               UpsampleBlock(channels[i-1],channels[i])
+               UpsampleBlock(channels[i-1],
+                             channels[i],
+                             depth=self.block_depth,
+                             residual=self.residual)
             )
 
 
         self.rgb_layers = nn.ModuleList()
         for i in range(len(self.channels)):
             self.rgb_layers.append(
-               nn.Conv2d(channels[i],self.img_channels,1,1,0)
+               CustomConv2d(channels[i],self.img_channels,1,1,0)
             )
         self.activation = nn.Tanh()
      

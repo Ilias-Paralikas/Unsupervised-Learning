@@ -1,10 +1,19 @@
-z_dim: 256
-channels: [512, 512, 512, 512, 256, 128, 64]
-batch_size: 8
+models:
+  # channels: [512, 512, 512, 512, 256, 128, 64]
+  channels: [512,512,512,512,256]
+  z_dim: 256
+  generator:
+    block_depth: 1
+    residual: False
+  discriminator:
+    block_depth: 1
+    residual: False
+
+training:
+  batch_size: 8
+
+  gen_lr : 1.0e-4
+  disc_lr : 1.0e-4
 
 
-gen_lr : 1.0e-4
-dis_lr : 1.0e-4
-
-
-save_itter : 100
+  save_itter : 100

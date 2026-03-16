@@ -6,6 +6,7 @@ class CityScapesMultiScaleDataset(Dataset):
     def __init__(self, 
                  preprocessed_root='./CityScapes/data/msg', 
                  output_activation="tanh", 
+                 range=None,
                  get_labels=False):
         """
         Args:
@@ -14,6 +15,7 @@ class CityScapesMultiScaleDataset(Dataset):
             get_labels: If False, labels are not loaded from disk (saves time).
         """
         self.get_labels = get_labels
+        self.range = range
         
         # Build the base path to the images
         self.base_img_dir = os.path.join(
@@ -47,7 +49,7 @@ class CityScapesMultiScaleDataset(Dataset):
         # Load the list of image tensors [size1, size2, ...]
         # weights_only=True is recommended for security if you're only loading tensors/lists
         image_list = torch.load(img_path, weights_only=False)
-        
+       
         target = []
         if self.get_labels:
             # Construct target path by swapping directory and suffix
@@ -59,6 +61,10 @@ class CityScapesMultiScaleDataset(Dataset):
             
             # Load the list of label tensors [size1, size2, ...]
             target = torch.load(target_path, weights_only=False)
+
+        if self.range is not None:
+            image_list = image_list[self.range[0]:self.range[1]]
+            target = target[self.range[0]:self.range[1]]
 
         return image_list, target
     

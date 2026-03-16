@@ -3,17 +3,22 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+from .blocks.convs import CustomConv2d
 from .blocks import DownsampleBlock
 from .blocks import ConvBlock
 
 class Discriminator(nn.Module):
     def __init__(self, 
                 channels,
-                img_channels=3):
+                img_channels=3,
+                block_depth=2,
+                residual=True):
         super().__init__()
         self.channels = channels.copy()
         self.channels.reverse()
         self.img_channels = img_channels
+        self.block_depth =block_depth
+        self.residual =residual
 
         self.initial_block = ConvBlock(self.img_channels,
                                              self.channels[0],
@@ -23,7 +28,9 @@ class Discriminator(nn.Module):
             self.blocks.append(
                DownsampleBlock(self.channels[i]+self.img_channels+1 if i>0 else self.channels[i]+1,
                                self.channels[i+1],
-                               use_norm=False)
+                               use_norm=False,
+                               depth=self.block_depth,
+                               residual=self.residual)
             )
 
         self.final_block = nn.Sequential(
@@ -40,10 +47,10 @@ class Discriminator(nn.Module):
                       stride=1,
                       padding=0,  # Valid padding avoids pooling
                       use_norm=False),
-            nn.Conv2d(self.channels[-1],1,1,1,0)
+            CustomConv2d(self.channels[-1],1,1,1,0)
 
         )
-    
+   
     def minibatch_std(self, x, group_size=4, eps=1e-8):
         b, c, h, w = x.shape
         # 1. Fallback for batch size of 1
@@ -62,13 +69,17 @@ class Discriminator(nn.Module):
         
         # 4. Average over channels and spatial dimensions
         mean_std = std.mean(dim=[1, 2, 3], keepdim=True)
-        mean_std = mean_std.repeat(1, group_size, 1, h, w).view(b, 1, h, w)
-        
+        mean_std = mean_std.unsqueeze(1) # Shape: (G, 1, 1, 1, 1)
+
+        mean_std = mean_std.expand(-1, group_size, -1, h, w) # Shape: (G, group_size, 1, h, w)
+            
+            # Flatten back to (batch, channels, height, width)
+        mean_std = mean_std.reshape(b, 1, h, w)    
         return torch.cat([x, mean_std], dim=1)
 
 
     def combine_features_rgb(self,rgb,features):
-        return torch.cat([rgb,features],dim=1)
+        return torch.cat([features,rgb],dim=1)
     
     def forward(self, x):
         y = self.initial_block(x[-1])

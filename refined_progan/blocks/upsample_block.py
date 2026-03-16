@@ -34,7 +34,8 @@ class UpsampleBlock(nn.Module):
                     channels=out_channels, 
                     depth=depth,
                     bias=bias,
-                    use_norm= self.use_norm
+                    use_norm= self.use_norm,
+                    residual=self.residual
             )
         
         
