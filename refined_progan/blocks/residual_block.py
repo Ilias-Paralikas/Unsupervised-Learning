@@ -41,11 +41,13 @@ class ResidualBlock(nn.Module):
         identity = x
         for block in self.blocks:
             x = block(x)
-        
+   
+        if self.use_norm:
+            x = self.norm(x)
+
+             
         if self.residual:
             x = x + identity
 
-        if self.use_norm:
-            x = self.norm(x)
         x = self.activation(x)
         return x

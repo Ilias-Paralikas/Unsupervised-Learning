@@ -13,13 +13,15 @@ class Generator(nn.Module):
                 channels,
                 img_channels=3,
                 block_depth=2,
-                residual=True):
+                residual=True,
+                use_norm=True):
         super().__init__()
         self.z_dim = z_dim  
         self.channels = channels.copy()
         self.img_channels = img_channels
         self.block_depth = block_depth
         self.residual = residual
+        self.use_norm = use_norm
 
         # 1. Define the initial convolution layer
         self.initial_conv = nn.Sequential(
@@ -30,7 +32,7 @@ class Generator(nn.Module):
                                 padding=0, 
                                 bias=True,
                                 transpose=True,
-                                use_norm=True
+                                use_norm=self.use_norm
                             ),
                             ConvBlock(in_channels=channels[0], 
                                 out_channels=channels[0], 
@@ -38,7 +40,7 @@ class Generator(nn.Module):
                                 stride=1, 
                                 padding=1, 
                                 bias=True,
-                                use_norm=True
+                                use_norm=self.use_norm
                             )
         )
 
@@ -48,7 +50,8 @@ class Generator(nn.Module):
                UpsampleBlock(channels[i-1],
                              channels[i],
                              depth=self.block_depth,
-                             residual=self.residual)
+                             residual=self.residual,
+                             use_norm=self.use_norm)
             )
 
 
