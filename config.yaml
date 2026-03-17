@@ -20,7 +20,7 @@ training:
 
   encoder:
     enc_lr : 1.0e-3
-    enc_rec_scale : 10.0
+    enc_rec_scale : 100.0
     enc_latent_scale : 1.0e-3
 
   generator:
@@ -28,7 +28,7 @@ training:
 
   discriminator:
     disc_lr : 1.0e-3
-    disc_drift_scale : 1.0e-3
+    disc_drift_scale : 1.0e-2
     disc_gp_scale : 10.0
 
 

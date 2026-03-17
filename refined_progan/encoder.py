@@ -57,7 +57,7 @@ class Encoder(nn.Module):
    
     
     def forward(self, x):
-        y = self.initial_block(x[-1])
+        y = self.initial_block(x)
 
         for i in range(len(self.channels)-1):
             y = self.blocks[i](y)
