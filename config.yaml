@@ -20,8 +20,9 @@ training:
 
   encoder:
     enc_lr : 1.0e-3
-    enc_rec_scale : 100.0
+    enc_rec_scale : 20.0
     enc_latent_scale : 1.0e-3
+    enc_feature_scale : 20.0
 
   generator:
     gen_lr : 1.0e-3

@@ -83,14 +83,22 @@ class Discriminator(nn.Module):
     def combine_features_rgb(self,rgb,features):
         return torch.cat([features,rgb],dim=1)
     
-    def forward(self, x):
+    def forward(self, x,return_features=False):
         y = self.initial_block(x[-1])
         y = self.minibatch_std(y)
 
+
+        features = []
         for i in range(len(self.channels)-1):
             y = self.blocks[i](y)
+            if return_features :
+                features.append(y)
             y = self.combine_features_rgb(x[-i-2],y)
             y = self.minibatch_std(y)
 
         y = self.final_block(y)
-        return y.view(y.shape[0],-1)
+
+        if return_features:
+            return y.view(y.shape[0],-1),features
+        else:
+            return y.view(y.shape[0],-1)
