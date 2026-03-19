@@ -1,36 +1,29 @@
 models:
-  # channels: [512, 512, 512, 512, 256, 128, 64]
-  channels: [512,512,256,128,64,32,16]
+  channels: [512, 512, 256, 128, 64, 32, 16]
   z_dim: 256
   generator:
     block_depth: 2
-    residual: True
-    use_norm: True
+    residual: true
+    use_norm: true
   discriminator:
     block_depth: 2
-    residual: True
-    use_norm: False
+    residual: true
+    use_norm: false
   encoder:
     block_depth: 2
-    residual: True
-    use_norm: True
-
+    residual: true
+    use_norm: true
 training:
   batch_size: 16
-
   encoder:
-    enc_lr : 1.0e-3
-    enc_rec_scale : 20.0
-    enc_latent_scale : 1.0e-3
-    enc_feature_scale : 20.0
-
+    enc_lr: 0.001
+    enc_rec_scale: 40.0
+    enc_latent_scale: 0.001
+    enc_feature_scale: 100.0
   generator:
-    gen_lr : 1.0e-3
-
+    gen_lr: 0.001
   discriminator:
-    disc_lr : 1.0e-3
-    disc_drift_scale : 1.0e-2
-    disc_gp_scale : 10.0
-
-
-  save_itter : 200
+    disc_lr: 0.001
+    disc_drift_scale: 0.01
+    disc_gp_scale: 10.0
+  save_itter: 200
