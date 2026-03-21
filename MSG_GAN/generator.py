@@ -60,7 +60,6 @@ class Generator(nn.Module):
             self.rgb_layers.append(
                CustomConv2d(channels[i],self.img_channels,1,1,0)
             )
-        self.activation = nn.Tanh()
      
     
     def forward(self, x):
@@ -68,7 +67,6 @@ class Generator(nn.Module):
         for i in range(len(self.channels)):
             x = self.blocks[i](x)
             y = self.rgb_layers[i](x)
-            y = self.activation(y)
             out.append(y)
             
         return out
