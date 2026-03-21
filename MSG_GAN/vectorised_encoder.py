@@ -20,7 +20,9 @@ class VectorisedEncoder(nn.Module):
                 residual=True,
                 use_norm=True):
         super().__init__()
+        self.z_dim = z_dim
         self.channels = channels.copy()
+        self.number_of_vectorizers = number_of_vectorizers
 
         self.vectorizer_linear_dim = vectorizer_linear_dim.copy()
         self.encoder = Encoder(z_dim=z_dim,
@@ -39,8 +41,9 @@ class VectorisedEncoder(nn.Module):
         ])
 
     def forward(self, x):
+        b_size = x.shape[0]
         x = self.encoder(x)
-        vectors= []
+        vectors= torch.zeros(self.number_of_vectorizers,b_size,self.z_dim,1,1).to(x.device)
         for i in range(len(self.vectorizers)):
-            vectors.append(self.vectorizers[i](x))
+            vectors[0] = self.vectorizers[i](x)
         return vectors

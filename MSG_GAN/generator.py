@@ -14,8 +14,7 @@ class Generator(nn.Module):
                 img_channels=3,
                 block_depth=2,
                 residual=True,
-                use_norm=True,
-                final_activation=None):
+                use_norm=True):
         super().__init__()
         self.z_dim = z_dim  
         self.channels = channels.copy()
