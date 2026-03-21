@@ -14,7 +14,8 @@ class Generator(nn.Module):
                 img_channels=3,
                 block_depth=2,
                 residual=True,
-                use_norm=True):
+                use_norm=True,
+                final_activation=None):
         super().__init__()
         self.z_dim = z_dim  
         self.channels = channels.copy()
@@ -60,7 +61,6 @@ class Generator(nn.Module):
             self.rgb_layers.append(
                CustomConv2d(channels[i],self.img_channels,1,1,0)
             )
-     
     
     def forward(self, x):
         out  = []
