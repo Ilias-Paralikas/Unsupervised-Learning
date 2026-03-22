@@ -12,8 +12,8 @@ models:
 training:
   batch_size: 16
   rec_gen:
-    rec_gen_lr: 1.0e-3
+    rec_gen_lr: 1.0e-4
   disc:
     disc_lr: 1.0e-3
    
-  save_itter: 200
+  save_itter: 100

@@ -27,7 +27,7 @@ class StyleConvBlock(nn.Module):
         self.bias = nn.Parameter(torch.zeros(1, out_channels, 1, 1))
     def forward(self, x, w):
         x = self.w_conv(x,w)
-        x = self.noise_injection(x)
+        # x = self.noise_injection(x)
         x = x + self.bias
         x = self.activate(x)
         return x 

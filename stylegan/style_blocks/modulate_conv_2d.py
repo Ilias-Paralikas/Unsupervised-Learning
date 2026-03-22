@@ -9,6 +9,7 @@ class ModulatedConv2d(nn.Module):
         self.demodulate = demodulate
         self.padding = kernel_size // 2
         
+
     def forward(self, x, w):
         batch_size = x.shape[0]
         # Affine transform for style
@@ -23,7 +24,10 @@ class ModulatedConv2d(nn.Module):
             w_prime = w_prime * norm.view(batch_size, -1, 1, 1, 1)
             
         # Reshape for grouped convolution to handle batch-specific weights
-        x = x.view(1, -1, x.shape[2], x.shape[3])
-        w_prime = w_prime.view(-1, w_prime.shape[2], w_prime.shape[3], w_prime.shape[4])
+        # FIX: Use .reshape() instead of .view() to handle non-contiguous memory from .expand()
+        x = x.reshape(1, -1, x.shape[2], x.shape[3])
+        w_prime = w_prime.reshape(-1, w_prime.shape[2], w_prime.shape[3], w_prime.shape[4])
+        
         out = F.conv2d(x, w_prime, padding=self.padding, groups=batch_size)
+        
         return out.view(batch_size, -1, out.shape[2], out.shape[3])
