@@ -2,10 +2,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
-from .blocks.convs import CustomConv2d
-from .blocks import DownsampleBlock
-from .blocks import ConvBlock
+from .conventional_blocks.convs import CustomConv2d
+from .conventional_blocks import DownsampleBlock
+from .conventional_blocks import ConvBlock
 
 class Encoder(nn.Module):
     def __init__(self, 
@@ -61,7 +60,6 @@ class Encoder(nn.Module):
 
         for i in range(len(self.channels)-1):
             y = self.blocks[i](y)
-        
 
         y = self.final_block(y)
         return y.view(y.shape[0],-1,1,1)

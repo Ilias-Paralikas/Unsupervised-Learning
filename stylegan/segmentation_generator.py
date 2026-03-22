@@ -1,27 +1,28 @@
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 
-from .blocks.convs import CustomConv2d
-from .blocks import ConvBlock
-from .blocks import UpsampleBlock
+from .conventional_blocks.convs import CustomConv2d
+from .conventional_blocks import ConvBlock
+from .conventional_blocks import UpsampleBlock
 
-class Generator(nn.Module):
+class SegmentationGenerator(nn.Module):
     def __init__(self, 
                  z_dim,
                 channels,
-                img_channels=3,
+                number_of_vectorizers,
                 block_depth=2,
                 residual=True,
                 use_norm=True):
         super().__init__()
         self.z_dim = z_dim  
         self.channels = channels.copy()
-        self.img_channels = img_channels
         self.block_depth = block_depth
         self.residual = residual
         self.use_norm = use_norm
+        self.number_of_vectorizers = number_of_vectorizers
 
         # 1. Define the initial convolution layer
         self.initial_conv = nn.Sequential(
@@ -53,22 +54,15 @@ class Generator(nn.Module):
                              residual=self.residual,
                              use_norm=self.use_norm)
             )
+            
+        self.final_block = CustomConv2d(channels[-1],self.number_of_vectorizers,1,1,0)
 
 
-        self.rgb_layers = nn.ModuleList()
-        for i in range(len(self.channels)):
-            self.rgb_layers.append(
-               CustomConv2d(channels[i],self.img_channels,1,1,0)
-            )
-        self.activation = nn.Tanh()
-     
+        self.final_activation = nn.Softmax(dim=1)
     
     def forward(self, x):
-        out  = []
         for i in range(len(self.channels)):
             x = self.blocks[i](x)
-            y = self.rgb_layers[i](x)
-            y = self.activation(y)
-            out.append(y)
-            
-        return out
+        x = self.final_block(x)
+        x = self.final_activation(x)
+        return x

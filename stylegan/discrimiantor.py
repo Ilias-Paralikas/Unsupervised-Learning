@@ -3,16 +3,16 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-from .blocks.convs import CustomConv2d
-from .blocks import DownsampleBlock
-from .blocks import ConvBlock
+from .conventional_blocks.convs import CustomConv2d
+from .conventional_blocks import DownsampleBlock
+from .conventional_blocks import ConvBlock
 
 class Discriminator(nn.Module):
     def __init__(self, 
                 channels,
-                img_channels=3,
                 block_depth=2,
                 residual=True,
+                img_channels=3,
                 use_norm=False):
         super().__init__()
         self.channels = channels.copy()
@@ -28,7 +28,7 @@ class Discriminator(nn.Module):
         self.blocks = nn.ModuleList()
         for i in range(len(self.channels)-1):
             self.blocks.append(
-               DownsampleBlock(self.channels[i]+self.img_channels+1 if i>0 else self.channels[i]+1,
+               DownsampleBlock(self.channels[i],
                                self.channels[i+1],
                                use_norm=self.use_norm,
                                depth=self.block_depth,
@@ -36,7 +36,7 @@ class Discriminator(nn.Module):
             )
 
         self.final_block = nn.Sequential(
-            ConvBlock(self.channels[-1] + self.img_channels + 1,
+            ConvBlock(self.channels[-1]+1,
                       self.channels[-1],
                       kernel_size=3,
                       stride=1,
@@ -80,12 +80,8 @@ class Discriminator(nn.Module):
         return torch.cat([x, mean_std], dim=1)
 
 
-    def combine_features_rgb(self,rgb,features):
-        return torch.cat([features,rgb],dim=1)
-    
     def forward(self, x,return_features=False):
-        y = self.initial_block(x[-1])
-        y = self.minibatch_std(y)
+        y = self.initial_block(x)
 
 
         features = []
@@ -93,9 +89,8 @@ class Discriminator(nn.Module):
             y = self.blocks[i](y)
             if return_features :
                 features.append(y)
-            y = self.combine_features_rgb(x[-i-2],y)
-            y = self.minibatch_std(y)
 
+        y = self.minibatch_std(y)
         y = self.final_block(y)
 
         if return_features:

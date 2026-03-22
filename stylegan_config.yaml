@@ -1,0 +1,19 @@
+models:
+  channels: [512, 512, 256, 128, 64, 32, 16]
+  rec_gen:
+    z_dim: 256 
+    w_dim: 256
+    mapping_network_depth: 8
+  disc:
+    block_depth: 2
+    residual: true
+    use_norm: false
+
+training:
+  batch_size: 16
+  rec_gen:
+    rec_gen_lr: 1.0e-3
+  disc:
+    disc_lr: 1.0e-3
+   
+  save_itter: 200

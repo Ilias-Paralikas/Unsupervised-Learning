@@ -7,8 +7,9 @@ import torch.nn.functional as F
 from .modulate_conv_2d import ModulatedConv2d
 from .noise_injection import NoiseInjection
 
-class ConvBlock(nn.Module):
-    def __init__(self, in_channels, 
+class StyleConvBlock(nn.Module):
+    def __init__(self, 
+                 in_channels, 
                 out_channels,
                 kernel_size, 
                 w_dim, 
