@@ -4,7 +4,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .style_blocks import StyleConvBlock, ToRGB, MappingNetwork
+from .style_blocks import StackedStyleBlocks, MappingNetwork
+from .style_blocks.modules.to_rgb import ToRGB
 
 class SkipGenerator(nn.Module):
     def __init__(self, 
@@ -23,7 +24,7 @@ class SkipGenerator(nn.Module):
         self.constant_input = nn.Parameter(torch.ones(1, channels[0], 4, 4))
         
         # Initial 4x4 blocks
-        self.initial_block = StyleConvBlock(channels[0], channels[0], kernel_size=3, w_dim=w_dim)
+        self.initial_block = StackedStyleBlocks(channels[0], channels[0], kernel_size=3, w_dim=w_dim)
         self.initial_rgb = ToRGB(channels[0], img_channels, w_dim=w_dim)
 
         self.blocks = nn.ModuleList()
@@ -31,7 +32,7 @@ class SkipGenerator(nn.Module):
         
         # Upsampling blocks (starts at 8x8)
         for i in range(len(channels) - 1):            
-            self.blocks.append(StyleConvBlock(channels[i], channels[i+1], kernel_size=3, w_dim=w_dim))
+            self.blocks.append(StackedStyleBlocks(channels[i], channels[i+1], kernel_size=3, w_dim=w_dim))
             self.rgb_blocks.append(ToRGB(channels[i+1], img_channels, w_dim=w_dim))
     
     def forward(self, z):

@@ -4,8 +4,8 @@ import torch.nn.functional as F
 
 
 
-from .modulate_conv_2d import ModulatedConv2d
-from .noise_injection import NoiseInjection
+from .modules.modulate_conv_2d import ModulatedConv2d
+from .modules.noise_injection import NoiseInjection
 
 class StyleConvBlock(nn.Module):
     def __init__(self, 
@@ -27,7 +27,7 @@ class StyleConvBlock(nn.Module):
         self.bias = nn.Parameter(torch.zeros(1, out_channels, 1, 1))
     def forward(self, x, w):
         x = self.w_conv(x,w)
-        # x = self.noise_injection(x)
+        x = self.noise_injection(x)
         x = x + self.bias
         x = self.activate(x)
         return x 

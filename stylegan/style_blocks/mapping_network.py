@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .equalised_linear_layer import EqualizedLinear
+from .modules.equalised_linear_layer import EqualizedLinear
 
 class MappingNetwork(nn.Module):
     def __init__(self, z_dim, w_dim, num_layers=8, lr_mul=0.01):

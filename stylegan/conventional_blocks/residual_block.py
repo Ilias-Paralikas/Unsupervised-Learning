@@ -45,7 +45,6 @@ class ResidualBlock(nn.Module):
         if self.use_norm:
             x = self.norm(x)
 
-             
         if self.residual:
             x = x + identity
 
