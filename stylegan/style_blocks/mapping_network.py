@@ -1,13 +1,16 @@
-import torch
+import torch 
 import torch.nn as nn
+import torch.nn.functional as F
+
+from .equalised_linear_layer import EqualizedLinear
 
 class MappingNetwork(nn.Module):
-    def __init__(self, z_dim, w_dim, num_layers=8):
+    def __init__(self, z_dim, w_dim, num_layers=8, lr_mul=0.01):
         super().__init__()
         layers = []
         in_dim = z_dim
         for _ in range(num_layers):
-            layers.append(nn.Linear(in_dim, w_dim))
+            layers.append(EqualizedLinear(in_dim, w_dim, lr_mul=lr_mul))
             layers.append(nn.LeakyReLU(0.2))
             in_dim = w_dim
         self.mapping = nn.Sequential(*layers)

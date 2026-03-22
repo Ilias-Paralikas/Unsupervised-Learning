@@ -1,14 +1,21 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import math
+from .equalised_linear_layer import EqualizedLinear
+
+
 class ModulatedConv2d(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, w_dim, demodulate=True):
         super().__init__()
         self.weight = nn.Parameter(torch.randn(1, out_channels, in_channels, kernel_size, kernel_size))
-        self.style_fc = nn.Linear(w_dim, in_channels)
+        self.style_fc =EqualizedLinear(w_dim, in_channels, lr_mul=0.01)
         self.demodulate = demodulate
         self.padding = kernel_size // 2
         
+ # 3. Calculate runtime scale for the convolution
+        fan_in = in_channels * (kernel_size ** 2)
+        self.scale = math.sqrt(2 / fan_in)
 
     def forward(self, x, w):
         batch_size = x.shape[0]
@@ -16,7 +23,7 @@ class ModulatedConv2d(nn.Module):
         style = self.style_fc(w) + 1.0 
         
         # Modulate weights
-        w_prime = self.weight * style.view(batch_size, 1, -1, 1, 1)
+        w_prime = (self.weight *self.scale) * style.view(batch_size, 1, -1, 1, 1)
         
         # Demodulate weights (StyleGAN2 specific)
         if self.demodulate:

@@ -33,22 +33,21 @@ class SkipGenerator(nn.Module):
         for i in range(len(channels) - 1):            
             self.blocks.append(StyleConvBlock(channels[i], channels[i+1], kernel_size=3, w_dim=w_dim))
             self.rgb_blocks.append(ToRGB(channels[i+1], img_channels, w_dim=w_dim))
-        self.activation = nn.Tanh()
     
     def forward(self, z):
-        batch_size = z.shape[0]
+        effective_batch_size = z.shape[0]
         # add the option for non vectorized forward pass, mainly for testing
-        if self.number_of_vectorizers is not None :
-            number_of_vectorizers = x.shape[1]
-            assert number_of_vectorizers == self.number_of_vectorizers
-            effective_batch_size = batch_size*number_of_vectorizers
+        # if self.number_of_vectorizers is not None :
+        #     number_of_vectorizers = x.shape[1]
+        #     assert number_of_vectorizers == self.number_of_vectorizers
+        #     effective_batch_size = batch_size*number_of_vectorizers
 
-            z = z.view(effective_batch_size,z.shape[2])
-        else:
-            effective_batch_size = batch_size
+        #     z = z.view(effective_batch_size,z.shape[2])
+        # else:
+        #   effective_batch_size = batch_size
 
-        # w = self.mapping_network(z)
-        w = z
+        w = self.mapping_network(z)
+        # w = z
         x = self.constant_input.expand(effective_batch_size, -1, -1, -1)
         x = self.initial_block(x, w)
         rgb = self.initial_rgb(x, w)
@@ -64,9 +63,8 @@ class SkipGenerator(nn.Module):
             rgb = rgb + new_rgb
             
         # if not vectorized, no need to untagle the batch size
-        if self.number_of_vectorizers is not None :
-            rgb = rgb.view(batch_size,number_of_vectorizers,*rgb.shape[1:])
+        # if self.number_of_vectorizers is not None :
+        #     rgb = rgb.view(batch_size,number_of_vectorizers,*rgb.shape[1:])
 
-        rgb = self.activation(rgb)
         return rgb 
     

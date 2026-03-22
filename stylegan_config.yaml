@@ -12,7 +12,7 @@ models:
 training:
   batch_size: 16
   rec_gen:
-    rec_gen_lr: 1.0e-4
+    rec_gen_lr: 1.0e-3
   disc:
     disc_lr: 1.0e-3
    
