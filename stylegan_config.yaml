@@ -7,13 +7,13 @@ models:
     mapping_network_lr_mul : 0.01
   disc:
     block_depth: 2
-    residual: true
+    residual: False
 
 training:
-  batch_size: 16
+  batch_size: 32
   rec_gen:
-    rec_gen_lr: 1.0e-4
+    rec_gen_lr: 1.0e-3
   disc:
-    disc_lr: 1.0e-4
+    disc_lr: 1.0e-3
    
   save_itter: 100

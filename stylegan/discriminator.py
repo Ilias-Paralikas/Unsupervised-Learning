@@ -51,14 +51,13 @@ class Discriminator(nn.Module):
     def forward(self, x):
         residual = self.from_rgb(x)
         for i in range(len(self.blocks)):
-            residual  =self.downsample(residual)
-            x=  self.downsample(x)
-
             x = self.blocks[i](residual)
             residual = self.channe_adaptors[i](residual)
-
-            residual = self.residual_scale *(residual + x)
+            residual = self.residual_scale * (residual + x)
+            
+            # Downsample EVERY time to ensure the final spatial map is 4x4
+            residual = self.downsample(residual)
 
         residual = self.final_block(residual)
-        residual = residual.view(residual.shape[0],-1)
+        residual = residual.view(residual.shape[0], -1)
         return residual
