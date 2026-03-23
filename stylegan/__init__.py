@@ -1,4 +1,2 @@
-from .encoder import Encoder
-from .skip_generator import SkipGenerator
-from .discrimiantor import Discriminator
-from .segmentation_generator import SegmentationGenerator
+from .style_generator import StyleGenerator
+from .discriminator import Discriminator

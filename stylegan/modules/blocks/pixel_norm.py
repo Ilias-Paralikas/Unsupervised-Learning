@@ -1,4 +1,5 @@
-import torch
+
+import torch 
 import torch.nn as nn
 
 class PixelNorm(nn.Module):
@@ -7,5 +8,5 @@ class PixelNorm(nn.Module):
         self.epsilon = epsilon
 
     def forward(self, x):
-        # Normalize across the channel dimension (dim=1) for each pixel
-        return x / torch.sqrt(torch.mean(x ** 2, dim=1, keepdim=True) + self.epsilon)
+        norm = torch.rsqrt(torch.mean(x ** 2, dim=1, keepdim=True) + self.epsilon)
+        return x * norm

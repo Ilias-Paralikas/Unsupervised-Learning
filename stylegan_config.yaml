@@ -4,10 +4,10 @@ models:
     z_dim: 256 
     w_dim: 256
     mapping_network_depth: 8
+    mapping_network_lr_mul : 0.01
   disc:
     block_depth: 2
     residual: true
-    use_norm: false
 
 training:
   batch_size: 16
