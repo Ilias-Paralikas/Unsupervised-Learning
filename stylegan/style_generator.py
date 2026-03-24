@@ -51,7 +51,7 @@ class StyleGenerator(nn.Module):
 
         style_mixing = torch.rand(1).item() < style_mixing_prob
         if style_mixing:
-            z_2 = torch.rand_like(z)
+            z_2 = torch.randn_like(z)
             w_2 = self.mapping_network(z_2)
 
             style_mixing_layer = torch.randint(1,len(self.blocks),size=(1,)).item()

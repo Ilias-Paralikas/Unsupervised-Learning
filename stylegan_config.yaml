@@ -17,13 +17,15 @@ training:
 
   disc:
     disc_lr: 1.0e-3
-    r1_regulation: 10
+    r1_lazy_regularisation: 16
+    r1_loss_weight: 10
+
    
   rec_gen:
     rec_gen_lr: 1.0e-3
     style_mixing_prob : 0.9
 
-    plp_lazy_regulation: 16
+    plp_lazy_regularisation: 16
     plp_decay : 0.99
     plp_loss_weight : 10
 
