@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .modules import EQLRDeepConvBlock
-from .modules.blocks import EQLRConv2d
+from .modules.blocks import EQLRConv2d, EQLEConvBlock
 
 class Discriminator(nn.Module):
     def __init__(self, 
@@ -29,7 +29,8 @@ class Discriminator(nn.Module):
                EQLRDeepConvBlock(in_channels=self.channels[i],
                                out_channels=self.channels[i+1],
                                depth=block_depth,
-                               residual=residual)
+                               residual=residual,
+                               use_norm=False)
             )
             self.channe_adaptors.append(EQLRConv2d(in_channels=self.channels[i],
                                    out_channels=self.channels[i+1],
@@ -39,12 +40,27 @@ class Discriminator(nn.Module):
                                    bias=True))
         self.downsample =nn.AvgPool2d(kernel_size=2, stride=2)
 
-        self.final_block = EQLRConv2d(in_channels=self.channels[-1]+1,
-                                   out_channels=1,
-                                   kernel_size=4,
-                                   stride=1,
-                                   padding=0,
-                                   bias=True)
+        self.final_block =nn.Sequential(
+            EQLEConvBlock(in_channels=self.channels[-1] +1,
+                      out_channels=self.channels[-1],
+                      kernel_size=3,
+                      stride=1,
+                      padding=1,
+                      use_norm=False),
+            # 2. 4x4 Valid Conv to collapse the 4x4 spatial dimensions to 1x1
+            EQLEConvBlock(in_channels=self.channels[-1],
+                      out_channels=self.channels[-1],
+                      kernel_size=4,
+                      stride=1,
+                      padding=0,  # Valid padding avoids pooling
+                      use_norm=False),
+            EQLRConv2d(in_channels=self.channels[-1],
+                                    out_channels=1,
+                                    kernel_size=1,
+                                    stride=1,
+                                    padding=0,
+                                    bias=True)
+        )
 
         self.residual_scale = 1/ (2**0.5)
 
@@ -73,6 +89,7 @@ class Discriminator(nn.Module):
             # Flatten back to (batch, channels, height, width)
         mean_std = mean_std.reshape(b, 1, h, w)    
         return torch.cat([x, mean_std], dim=1)
+    
     def forward(self, x):
         residual = self.from_rgb(x)
         for i in range(len(self.blocks)):
@@ -82,6 +99,7 @@ class Discriminator(nn.Module):
             
             # Downsample EVERY time to ensure the final spatial map is 4x4
             residual = self.downsample(residual)
+
         residual = self.minibatch_std(residual)
         residual = self.final_block(residual)
         residual = residual.view(residual.shape[0], -1)

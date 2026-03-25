@@ -3,62 +3,65 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .modules import EQLRDeepConvBlock
-from .modules.blocks import EQLRConv2d
+from .modules.blocks import EQLRConv2d, EQLEConvBlock
 
 class Encoder(nn.Module):
     def __init__(self, 
-                channels,
                 z_dim,
+                channels,
+                img_channels=3,
                 block_depth=2,
                 residual=True,
-                img_channels=3):
+                use_norm=True):
         super().__init__()
+        self.z_dim = z_dim
         self.channels = channels.copy()
         self.channels.reverse()
+        self.img_channels = img_channels
+        self.block_depth =block_depth
+        self.residual =residual
+        self.use_norm = use_norm 
 
-        self.from_rgb = EQLRConv2d(in_channels=img_channels,
-                                   out_channels=self.channels[0],
-                                   kernel_size=1,
-                                   stride=1,
-                                   padding=0,
-                                   bias=True)
-        
+        self.initial_block = EQLEConvBlock(self.img_channels,
+                                             self.channels[0],
+                                             use_norm=self.use_norm)
         self.blocks = nn.ModuleList()
-        self.channe_adaptors = nn.ModuleList()
         for i in range(len(self.channels)-1):
             self.blocks.append(
-               EQLRDeepConvBlock(in_channels=self.channels[i],
-                               out_channels=self.channels[i+1],
-                               depth=block_depth,
-                               residual=residual)
+               EQLRDeepConvBlock(self.channels[i],
+                               self.channels[i+1],
+                               use_norm=self.use_norm,
+                               depth=self.block_depth,
+                               residual=self.residual)
             )
-            self.channe_adaptors.append(EQLRConv2d(in_channels=self.channels[i],
-                                   out_channels=self.channels[i+1],
-                                   kernel_size=1,
-                                   stride=1,
-                                   padding=0,
-                                   bias=True))
-            
-        self.downsample =nn.AvgPool2d(kernel_size=2, stride=2)
 
-        self.final_block = EQLRConv2d(in_channels=self.channels[-1],
-                                   out_channels=z_dim,
-                                   kernel_size=4,
-                                   stride=1,
-                                   padding=0,
-                                   bias=True)
+        self.final_block = nn.Sequential(
+            EQLEConvBlock(self.channels[-1] ,
+                      self.channels[-1],
+                      kernel_size=3,
+                      stride=1,
+                      padding=1,
+                      use_norm=self.use_norm),
+            # 2. 4x4 Valid Conv to collapse the 4x4 spatial dimensions to 1x1
+            EQLEConvBlock(self.channels[-1],
+                      self.channels[-1],
+                      kernel_size=4,
+                      stride=1,
+                      padding=0,  # Valid padding avoids pooling
+                      use_norm=self.use_norm),
+            EQLRConv2d(self.channels[-1],self.z_dim,1,1,0)
 
-        self.residual_scale = 1/ (2**0.5)
+        )
+        self.avg_pool = nn.AvgPool2d(kernel_size=2, stride=2)
 
+    
     def forward(self, x):
-        residual = self.from_rgb(x)
-        for i in range(len(self.blocks)):
-            x = self.blocks[i](residual)
-            residual = self.channe_adaptors[i](residual)
-            residual = self.residual_scale * (residual + x)
-            
-            # Downsample EVERY time to ensure the final spatial map is 4x4
-            residual = self.downsample(residual)
-        residual = self.final_block(residual)
-        residual = residual.view(residual.shape[0], -1)
-        return residual
+        y = self.initial_block(x)
+
+        for i in range(len(self.channels)-1):
+            y = self.blocks[i](y)
+            y= self.avg_pool(y)
+        
+
+        y = self.final_block(y)
+        return y.view(y.shape[0],-1)

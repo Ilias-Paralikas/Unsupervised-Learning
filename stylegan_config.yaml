@@ -16,8 +16,8 @@ training:
   batch_size: 8
   enc:
     enc_lr: 1.0e-3
-    enc_reconstruction_loss_weight: 10  
-    enc_vector_magnitude_loss_weight: 1.0e-2
+    enc_reconstruction_loss_weight: 1 
+    enc_vector_magnitude_loss_weight: 1.0e-3
   rec_gen:
     rec_gen_lr: 1.0e-3
     style_mixing_prob : 0.9
@@ -29,4 +29,4 @@ training:
     r1_lazy_regularisation: 16
     r1_loss_weight: 10
   
-  save_itter: 100
+  save_itter: 250
