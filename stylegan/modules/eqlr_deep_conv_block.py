@@ -42,7 +42,7 @@ class EQLRDeepConvBlock(nn.Module):
 
         self.use_norm = use_norm
         if use_norm:
-            self.norm = PixelNorm(out_channels)
+            self.norm = PixelNorm()
 
     def forward(self, x):
         identity = x
@@ -51,7 +51,7 @@ class EQLRDeepConvBlock(nn.Module):
         if self.residual:
             x = self.residual_scale *(x +identity)
         x = self.final_block(x) 
-        
+
         if self.use_norm:
             x = self.norm(x)
   

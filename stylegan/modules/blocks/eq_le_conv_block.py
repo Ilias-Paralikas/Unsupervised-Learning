@@ -24,7 +24,7 @@ class EQLEConvBlock(nn.Module):
         self.lrelu = nn.LeakyReLU(0.2)
         self.use_norm = use_norm
         if use_norm:
-            self.norm = PixelNorm(out_channels)
+            self.norm = PixelNorm()
     def forward(self, x):
         x = self.conv(x)
         if self.use_norm:

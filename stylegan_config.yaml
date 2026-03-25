@@ -17,7 +17,7 @@ training:
   enc:
     enc_lr: 1.0e-3
     enc_reconstruction_loss_weight: 1 
-    enc_vector_magnitude_loss_weight: 1.0e-3
+    enc_vector_magnitude_loss_weight: 1.0e-4
   rec_gen:
     rec_gen_lr: 1.0e-3
     style_mixing_prob : 0.9
