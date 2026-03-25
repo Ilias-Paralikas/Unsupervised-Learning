@@ -1,32 +1,32 @@
 models:
   channels: [512, 512, 256, 128, 64, 32, 16]
-
+  z_dim: 256 
+  enc: 
+    block_depth: 2
+    residual: True
   rec_gen:
-    z_dim: 256 
     w_dim: 256
     mapping_network_depth: 8
     mapping_network_lr_mul : 0.01
     block_depth: 2
-
   disc:
     block_depth: 2
     residual: True
-
 training:
-  batch_size: 32
-
+  batch_size: 8
+  enc:
+    enc_lr: 1.0e-3
+    enc_reconstruction_loss_weight: 10  
+    enc_vector_magnitude_loss_weight: 1.0e-2
+  rec_gen:
+    rec_gen_lr: 1.0e-3
+    style_mixing_prob : 0.9
+    plp_lazy_regularisation: 16
+    plp_decay : 0.99
+    plp_loss_weight : 10
   disc:
     disc_lr: 1.0e-3
     r1_lazy_regularisation: 16
     r1_loss_weight: 10
-
-   
-  rec_gen:
-    rec_gen_lr: 1.0e-3
-    style_mixing_prob : 0.9
-
-    plp_lazy_regularisation: 16
-    plp_decay : 0.99
-    plp_loss_weight : 10
-
+  
   save_itter: 100

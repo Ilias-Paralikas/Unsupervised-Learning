@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from .blocks import EQLRConv2d
 
 
-class DiscriminatorBlock(nn.Module):
+class EQLRDeepConvBlock(nn.Module):
     def __init__(self, 
                  in_channels, 
                  out_channels,
