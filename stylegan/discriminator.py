@@ -90,10 +90,14 @@ class Discriminator(nn.Module):
         mean_std = mean_std.reshape(b, 1, h, w)    
         return torch.cat([x, mean_std], dim=1)
     
-    def forward(self, x):
+    def forward(self, x,return_features=False):
+        features = []
+        
         residual = self.from_rgb(x)
         for i in range(len(self.blocks)):
             x = self.blocks[i](residual)
+            if return_features :
+                features.append(x)
             residual = self.channe_adaptors[i](residual)
             residual = self.residual_scale * (residual + x)
             
@@ -103,4 +107,6 @@ class Discriminator(nn.Module):
         residual = self.minibatch_std(residual)
         residual = self.final_block(residual)
         residual = residual.view(residual.shape[0], -1)
+        if return_features:
+            return residual, features
         return residual

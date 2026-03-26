@@ -15,9 +15,10 @@ models:
 training:
   batch_size: 8
   enc:
-    enc_lr: 3.0e-3
-    enc_reconstruction_loss_weight: 1 
+    enc_lr: 1.0e-3
+    enc_reconstruction_loss_weight: 5
     enc_vector_magnitude_loss_weight: 1.0e-4
+    enc_feature_loss_weight: 50
   rec_gen:
     rec_gen_lr: 1.0e-3
     style_mixing_prob : 0.9
