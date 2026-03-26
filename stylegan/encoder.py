@@ -7,14 +7,14 @@ from .modules.blocks import EQLRConv2d, EQLEConvBlock
 
 class Encoder(nn.Module):
     def __init__(self, 
-                z_dim,
+                w_dim,
                 channels,
                 img_channels=3,
                 block_depth=2,
                 residual=True,
                 use_norm=True):
         super().__init__()
-        self.z_dim = z_dim
+        self.w_dim = w_dim
         self.channels = channels.copy()
         self.channels.reverse()
         self.img_channels = img_channels
@@ -49,7 +49,7 @@ class Encoder(nn.Module):
                       stride=1,
                       padding=0,  # Valid padding avoids pooling
                       use_norm=self.use_norm),
-            EQLRConv2d(self.channels[-1],self.z_dim,1,1,0)
+            EQLRConv2d(self.channels[-1],self.w_dim,1,1,0)
 
         )
         self.avg_pool = nn.AvgPool2d(kernel_size=2, stride=2)

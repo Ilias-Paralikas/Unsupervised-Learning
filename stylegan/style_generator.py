@@ -42,10 +42,23 @@ class StyleGenerator(nn.Module):
                                          w_dim=w_dim,
                                          img_channels=img_channels))
         
-    def forward(self, z,style_mixing_prob=0,return_w=False):
+    def forward(self, 
+                z,
+                style_mixing_prob=0,
+                return_w=False,
+                skip_mapping_network=False):
         batch_size = z.shape[0]
-        w = self.mapping_network(z)
 
+        # sometimes we want to pass the W instead of the Z vector. 
+        # If that is the case, we dont want style mixing
+        if skip_mapping_network:
+            w = z
+            style_mixing_prob = 0.0
+        else:
+            w = self.mapping_network(z)
+       
+
+        # for PLR we want constant W vector se we disable style mixing
         if return_w:
             style_mixing_prob = 0.0
 
