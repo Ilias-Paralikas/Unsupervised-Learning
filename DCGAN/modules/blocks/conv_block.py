@@ -14,8 +14,7 @@ class ConvBlock(nn.Module):
                  stride=1, 
                  padding=1, 
                  bias=True,
-                 use_norm  =True,
-                 transpose=False):
+                 use_norm  =True):
         super().__init__()
         self.use_norm = use_norm
    

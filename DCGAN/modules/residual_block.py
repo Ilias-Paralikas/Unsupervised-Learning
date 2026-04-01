@@ -7,7 +7,8 @@ from .blocks.normalizations import PixelNorm
 
 class ResidualBlock(nn.Module):
     def __init__(self, 
-                 channels, 
+                 in_channels, 
+                 out_channels,
                  depth=2,
                  bias=True,
                  use_norm=True,
@@ -16,38 +17,42 @@ class ResidualBlock(nn.Module):
         super().__init__()
         self.residual = residual
         self.use_norm = use_norm
-        # 1. Safety check for GroupNorm
-        # If out_channels is smaller than groups, reduce groups to match out_channels
+        if in_channels != out_channels:
+            self.channel_adaptor = EQLRConv2d(in_channels, out_channels, 1, 1, 0, bias=bias)
+        else:
+            self.channel_adaptor = nn.Identity()
+
+        
         self.blocks = nn.ModuleList()
         for i in range(depth-1):
             self.blocks.append(
                 ConvBlock(
-                    in_channels=channels, 
-                    out_channels=channels, 
+                    in_channels=in_channels, 
+                    out_channels=in_channels, 
                     kernel_size=3, 
                     stride=1, 
                     padding=1, 
                     bias=bias,
-                    use_norm=self.use_norm,
-                    transpose=False
+                    use_norm=self.use_norm
                 )
             )
-        self.blocks.append(EQLRConv2d(channels, channels, 3, 1, 1, bias=bias))
+        self.blocks.append(EQLRConv2d(in_channels, in_channels, 3, 1, 1, bias=bias))
         self.activation = nn.LeakyReLU(0.2, inplace=True)
-        if self.use_norm:
-            self.norm = PixelNorm()
+
+        self.norm = PixelNorm() if use_norm else nn.Identity()
+
     def forward(self, x):
 
         identity = x
         for block in self.blocks:
             x = block(x)
-   
-        if self.use_norm:
-            x = self.norm(x)
 
-             
         if self.residual:
             x = x + identity
 
+        x = self.norm(x)
+
         x = self.activation(x)
+
+        x = self.channel_adaptor(x)
         return x
