@@ -1,0 +1,2 @@
+from .gradient_penalty import GradientPenaltyLoss
+from .weighted_mse import WeightedMSELoss
