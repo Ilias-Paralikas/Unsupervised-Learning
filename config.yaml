@@ -22,6 +22,6 @@ training:
     gen_lr: 1.0e-4
   disc:
     disc_lr: 1.0e-4
-    gp_weight_loss: 10.0
-    drift_weight_loss: 1.0
+    disc_gp_loss_weight: 10.0
+    disc_drift_loss_weight: 1.0e-3
   save_itter: 250

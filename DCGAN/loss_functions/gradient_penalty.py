@@ -2,14 +2,14 @@ import torch
 import torch.nn as nn
 
 class GradientPenaltyLoss(nn.Module):
-    def __init__(self, gp_loss_weight=10.0):
+    def __init__(self, weight=10.0):
         """
         Args:
             gp_loss_weight (float): The weight factor for the gradient penalty. 
                                    Standard WGAN-GP papers use 10.0.
         """
         super().__init__()
-        self.lambda_weight = gp_loss_weight
+        self.lambda_weight = weight
 
     def forward(self, critic, real, fake):
         batch_size = real.size(0)
