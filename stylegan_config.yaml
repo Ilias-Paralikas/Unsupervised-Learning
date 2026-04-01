@@ -28,6 +28,6 @@ training:
   disc:
     disc_lr: 1.0e-3
     r1_lazy_regularisation: 16
-    r1_loss_weight: 10
+    r1_loss_weight: 100
   
   save_itter: 250
