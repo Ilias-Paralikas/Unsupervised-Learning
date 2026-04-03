@@ -27,6 +27,7 @@ class Encoder(nn.Module):
                                    bias=True)
         
         self.blocks = nn.ModuleList()
+        self.channel_adaptors = nn.ModuleList()
         for i in range(len(self.channels)-1):
             self.blocks.append(
                ResidualBlock(in_channels=self.channels[i],
@@ -35,6 +36,12 @@ class Encoder(nn.Module):
                                residual=residual,
                                use_norm=use_norm)
             )
+            self.channel_adaptors.append(EQLRConv2d(in_channels=self.channels[i],
+                                    out_channels=self.channels[i+1],
+                                    kernel_size=1,
+                                    stride=1,
+                                    padding=0,
+                                    bias=True))
 
         self.downsample =nn.AvgPool2d(kernel_size=2, stride=2)
 
@@ -52,12 +59,19 @@ class Encoder(nn.Module):
                                     padding=0,
                                     bias=True)
         )
+        self.residual_scale = 1/ (2**0.5)
 
     def forward(self, x):
-        
-        x = self.from_rgb(x)
-        for block in self.blocks:
-            x = block(x)
+                
+        feature_acc = self.from_rgb(x)
+        for channel_adaptor, block in zip(self.channel_adaptors, self.blocks):
+            x = block(feature_acc)
+           
+            feature_acc = self.downsample(feature_acc)
             x = self.downsample(x)
+            feature_acc = channel_adaptor(feature_acc)
+            feature_acc = self.residual_scale * (feature_acc + x)
+
+
         x = self.final_block(x)
         return x

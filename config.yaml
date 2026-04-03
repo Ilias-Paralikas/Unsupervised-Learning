@@ -1,5 +1,5 @@
 models:
-  channels: [512, 512, 256, 128, 64, 32, 16]
+  channels: [512, 512,512, 256, 128, 64, 32]
   z_shape: [256,4,4]
   enc: 
     block_depth: 2
@@ -14,14 +14,16 @@ models:
     residual: True
     use_norm: False
 training:
-  batch_size: 8
+  batch_size: 32
   enc:
     enc_lr: 1.0e-4
-    enc_reconstruction_loss_weight: 5
+    enc_reconstruction_loss_weight: 200
+    enc_feature_loss_weight: 50
   gen:
     gen_lr: 1.0e-4
   disc:
+    n_critic: 5
     disc_lr: 1.0e-4
     disc_gp_loss_weight: 10.0
-    disc_drift_loss_weight: 1.0e-3
-  save_itter: 250
+    disc_drift_loss_weight: 1.0e-2
+  save_itter: 100
