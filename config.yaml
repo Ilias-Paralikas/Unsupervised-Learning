@@ -16,14 +16,14 @@ models:
 training:
   batch_size: 32
   enc:
-    enc_lr: 1.0e-4
+    enc_lr: 1.0e-3
     enc_reconstruction_loss_weight: 200
     enc_feature_loss_weight: 50
   gen:
-    gen_lr: 1.0e-4
+    gen_lr: 1.0e-3
   disc:
     n_critic: 5
-    disc_lr: 1.0e-4
+    disc_lr: 1.0e-3
     disc_gp_loss_weight: 10.0
     disc_drift_loss_weight: 1.0e-2
   save_itter: 100
