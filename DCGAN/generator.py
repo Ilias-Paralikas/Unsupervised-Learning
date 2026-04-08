@@ -62,13 +62,13 @@ class Generator(nn.Module):
 
         # Accumulate RGB from intermediate blocks
         for i, block in enumerate(self.blocks):
-            x = F.interpolate(x, scale_factor=2, mode='nearest')
+            x = F.interpolate(x, scale_factor=2, mode='bilinear ')
             x = block(x)
             
             if rgb_acc is None:
                 rgb_acc = self.to_rgb[i](x)
             else:
-                rgb_acc = F.interpolate(rgb_acc, scale_factor=2, mode='nearest')
+                rgb_acc = F.interpolate(rgb_acc, scale_factor=2, mode='bilinear ')
                 rgb_acc = rgb_acc + self.to_rgb[i](x)
             
         # Add the final activated refinement
