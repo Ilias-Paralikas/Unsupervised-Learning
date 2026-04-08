@@ -80,7 +80,7 @@ class Discriminator(nn.Module):
             feature_acc = self.residual_scale * (feature_acc + x)
 
 
-        x = self.final_block(x)
+        x = self.final_block(feature_acc)
         x = x.view(x.size(0), -1)
         if return_features:
             return x, features

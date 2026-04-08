@@ -73,5 +73,5 @@ class Encoder(nn.Module):
             feature_acc = self.residual_scale * (feature_acc + x)
 
 
-        x = self.final_block(x)
+        x = self.final_block(feature_acc)
         return x
