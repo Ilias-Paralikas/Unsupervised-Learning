@@ -1,6 +1,7 @@
 models:
   channels: [512, 512,512, 256, 128, 64, 32]
   z_shape: [256,4,4]
+  number_of_components: 2
   enc: 
     block_depth: 2
     residual: True
@@ -9,18 +10,27 @@ models:
     block_depth: 2
     residual: True
     use_norm: True
+    vector_dim: 256
+    vectorizer_linear_layer_dim: [1024]
+    degrees_of_freedom: 256
+  segmentation_gen:
+    block_depth: 2
+    residual: True
+    use_norm: True
   disc:
     block_depth: 2
     residual: True
     use_norm: False
 training:
-  batch_size: 32
+  batch_size: 16
   enc:
     enc_lr: 1.0e-3
     enc_reconstruction_loss_weight: 200
     enc_feature_loss_weight: 50
   gen:
     gen_lr: 1.0e-3
+  segmentation_gen:
+    seg_gen_lr: 1.0e-3
   disc:
     n_critic: 5
     disc_lr: 1.0e-3
