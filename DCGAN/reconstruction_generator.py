@@ -13,7 +13,7 @@ class ReconstructionGenerator(nn.Module):
                 z_dim,
                 number_of_components=2,
                 vector_dim=128,
-                vectorizer_linear_layer_dim=[1024],
+                vectorizer_linear_layer_multipliers=[4],
                 degrees_of_freedom=12,
                 block_depth=2,
                 residual=True,
@@ -33,7 +33,7 @@ class ReconstructionGenerator(nn.Module):
             Vectorizer(in_neuroes=z_dim,
                        vector_dim=vector_dim,
                        degrees_of_freedom=degrees_of_freedom,
-                       linear_layer_dim=vectorizer_linear_layer_dim)
+                       linear_layer_multipliers=vectorizer_linear_layer_multipliers)
                        for _ in range(number_of_components)
         ])
         
