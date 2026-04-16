@@ -10,7 +10,7 @@ models:
     block_depth: 2
     residual: True
     use_norm: True
-    vector_dim: 512
+    vector_dim: 128
     linear_layer_multipliers: [4,4]
     degrees_of_freedom: 64
   segmentation_gen:

@@ -10,7 +10,7 @@ class Vectorizer(nn.Module):
                  vector_dim,
                  degrees_of_freedom,
                  use_matrix_multiplication=True,
-                 linear_layer_multipliers=[]):
+                 linear_layer_multipliers=[4,4]):
         super().__init__()
         self.in_neuroes = in_neuroes
         self.vector_dim = vector_dim
