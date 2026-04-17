@@ -22,7 +22,7 @@ models:
     residual: True
     use_norm: False
 training:
-  batch_size: 16
+  batch_size: 8
   enc:
     enc_lr: 1.0e-3
     enc_reconstruction_loss_weight: 200
