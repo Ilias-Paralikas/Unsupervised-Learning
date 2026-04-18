@@ -1,7 +1,7 @@
 models:
-  channels: [512, 512,512, 256, 128, 64, 32]
-  z_shape: [256,4,4]
-  number_of_components: 8
+  channels: [512, 256, 128, 64, 32, 16, 8]
+  z_shape: [256, 4, 4]
+  number_of_components: 2
   enc: 
     block_depth: 2
     residual: True
@@ -12,11 +12,12 @@ models:
     use_norm: True
     vector_dim: 512
     linear_layer_multipliers: [4,4]
-    degrees_of_freedom: 64
+    degrees_of_freedom: 512
   segmentation_gen:
     block_depth: 2
     residual: True
     use_norm: True
+    cut_connections: 3
   disc:
     block_depth: 2
     residual: True

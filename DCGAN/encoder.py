@@ -61,11 +61,11 @@ class Encoder(nn.Module):
         )
         self.residual_scale = 1/ (2**0.5)
     
-    def forward(self, x):
-        skips = [] # Store intermediate features
+    def forward(self, x, return_features=False):
         
+        if return_features:
+            skips = []
         feature_acc = self.from_rgb(x)
-        skips.append(feature_acc) # Save the highest resolution features (H x W)
         
         for channel_adaptor, block in zip(self.channel_adaptors, self.blocks):
             x = block(feature_acc)
@@ -74,10 +74,14 @@ class Encoder(nn.Module):
             x = self.downsample(x)
             feature_acc = channel_adaptor(feature_acc)
             feature_acc = self.residual_scale * (feature_acc + x)
+            if return_features:
+                skips.append(feature_acc)
             
-            skips.append(feature_acc) # Save features at (H/2), (H/4), etc.
 
         x = self.final_block(feature_acc)
         
         # We don't need the very last skip because it matches the bottleneck resolution
-        return x, skips[:-1] 
+        if return_features:
+            return x, skips[:-1]
+        else:
+            return x
