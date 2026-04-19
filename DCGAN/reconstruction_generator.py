@@ -68,7 +68,7 @@ class ReconstructionGenerator(nn.Module):
                                    padding=0,
                                    bias=True))
 
-     
+        self.residual_scale = 1/ (2**0.5)
 
     def forward(self, x):
         x  = self.flatten_layer(x)

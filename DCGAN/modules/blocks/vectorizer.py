@@ -9,7 +9,7 @@ class Vectorizer(nn.Module):
                  in_neuroes,
                  vector_dim,
                  degrees_of_freedom,
-                 use_matrix_multiplication=True,
+                 use_matrix_multiplication=False,
                  linear_layer_multipliers=[]):
         super().__init__()
         self.in_neuroes = in_neuroes
@@ -34,8 +34,15 @@ class Vectorizer(nn.Module):
             linear_layer.append(nn.LeakyReLU(0.2, inplace=True)) # LeakyReLU is standard for GANs
             linear_layer.append(EQLRLinear(self.linear_layer_dim[i], self.linear_layer_dim[i+1]))
 
+
+        if not self.use_matrix_multiplication:
+            linear_layer.append(nn.LeakyReLU(0.2, inplace=True))
+            linear_layer.append(EQLRLinear(self.linear_layer_dim[-1], self.vector_dim))
+            
         self.linear = nn.Sequential(*linear_layer)
-        self.vectors = nn.Parameter(torch.randn(self.degrees_of_freedom, self.vector_dim))
+        self.vectors = nn.Parameter(torch.randn(self.degrees_of_freedom, self.vector_dim),
+                                     requires_grad=True)
+        self.pixel_norm = PixelNorm() # Add a standalone PixelNorm
 
     def forward(self, x):
         batch_size = x.size(0)
@@ -43,5 +50,6 @@ class Vectorizer(nn.Module):
         if self.use_matrix_multiplication:
             x = x.view(batch_size, self.degrees_of_freedom)
             x = torch.matmul(x, self.vectors)
+        x = self.pixel_norm(x)
         x = x.view(batch_size, 1, x.shape[1])
         return x
