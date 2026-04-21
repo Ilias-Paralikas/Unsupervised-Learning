@@ -2,9 +2,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .modules import ResidualBlock
-from .modules.blocks.eq_lr_layers import EQLRConv2d
-from .modules.blocks import ConvBlock, Vectorizer
+from DCGAN.modules import ResidualBlock
+from DCGAN.modules.blocks.eq_lr_layers import EQLRConv2d
+from DCGAN.modules.blocks import ConvBlock, Vectorizer
 
 
 class ReconstructionGenerator(nn.Module):
@@ -22,7 +22,7 @@ class ReconstructionGenerator(nn.Module):
         super().__init__()
         self.channels = channels.copy()
 
-        self.flatten_layer = EQLRConv2d(in_channels=z_dim,
+        self.flatten_layer = ConvBlock(in_channels=z_dim,
                                         out_channels=z_dim,
                                         kernel_size=4,
                                         stride=1,
@@ -52,7 +52,6 @@ class ReconstructionGenerator(nn.Module):
 
         
         self.blocks = nn.ModuleList()
-        self.to_rgb = nn.ModuleList()
         for i in range(len(self.channels)-1):
             self.blocks.append(
                ResidualBlock(in_channels=self.channels[i],
@@ -61,14 +60,22 @@ class ReconstructionGenerator(nn.Module):
                                residual=residual,
                                use_norm=use_norm)
             )
-            self.to_rgb.append(EQLRConv2d(in_channels=self.channels[i+1],
-                                   out_channels=img_channels,
-                                   kernel_size=1,
-                                   stride=1,
-                                   padding=0,
-                                   bias=True))
 
-        self.residual_scale = 1/ (2**0.5)
+        self.to_rgb = nn.Sequential(
+            ConvBlock(in_channels=self.channels[-1],
+                      out_channels=self.channels[-1],
+                      kernel_size=3,
+                      stride=1,
+                      padding=1,
+                      use_norm=use_norm),
+            EQLRConv2d(in_channels=self.channels[-1],
+                                    out_channels=img_channels,
+                                    kernel_size=1,
+                                    stride=1,
+                                    padding=0,
+                                    bias=True)
+        )
+           
 
     def forward(self, x):
         x  = self.flatten_layer(x)
@@ -76,35 +83,21 @@ class ReconstructionGenerator(nn.Module):
         for vectorizer in self.vectorizers:
             vectors.append(vectorizer(x))
         vectors = torch.cat(vectors, dim=1)
-
+    
         x = vectors.view(vectors.shape[0], vectors.shape[1], vectors.shape[2], 1, 1)
         batch_size = x.shape[0]
         number_of_components = x.shape[1]
 
         effective_batch_size = batch_size * number_of_components
-
-
         x  = x.view(effective_batch_size, *x.shape[2:])
 
         x = self.first_transpose(x)
         x = self.from_noise(x)
-        rgb_acc = None
-
-        # Accumulate RGB from intermediate blocks
-        for rgb, block in zip(self.to_rgb,self.blocks):
+        for block in self.blocks:
             x = F.interpolate(x, scale_factor=2, mode='bilinear')
             x = block(x)
-            
-            if rgb_acc is None:
-                rgb_acc = rgb(x)
-            else:
-                rgb_acc = F.interpolate(rgb_acc, scale_factor=2, mode='bilinear')
-                rgb_acc = rgb_acc + rgb(x)
 
-      
-        rgb_acc = rgb_acc / (len(self.blocks) + 1)
-        rgb_acc  = torch.tanh(rgb_acc)
+        x = self.to_rgb(x)
+        x = x.view(batch_size, number_of_components, *x.shape[1:])
 
-        rgb_acc = rgb_acc.view(batch_size, number_of_components, *rgb_acc.shape[1:])
-
-        return rgb_acc
+        return x

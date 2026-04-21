@@ -33,7 +33,7 @@ class Discriminator(nn.Module):
                ResidualBlock(in_channels=self.channels[i],
                                out_channels=self.channels[i+1],
                                depth=block_depth,
-                               residual=residual,
+                               residual=False, # we add the residual in the forward pass, in the feature encoder
                                use_norm=use_norm)
             )
             self.channel_adaptors.append(EQLRConv2d(in_channels=self.channels[i],

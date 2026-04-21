@@ -40,7 +40,7 @@ class UNet(nn.Module):
         for i in range(num_dec):
             # i=0 is coarsest (near bottleneck), i=num_dec-1 is finest (near image)
             # cut the last cut_connections steps = highest i = closest to image
-            is_cut = i >= (num_dec - cut_connections)
+            is_cut = i >= (num_dec - 1 - cut_connections)  # ← was: num_dec - cut_connections
             in_ch = dec_channels[i] if is_cut else dec_channels[i] + dec_channels[i + 1]
             self.decoder_blocks.append(
                 ResidualBlock(in_channels=in_ch,
@@ -49,8 +49,7 @@ class UNet(nn.Module):
                               use_norm=use_norm))
 
         self.decoder_final = nn.Sequential(
-            ConvBlock(in_channels=dec_channels[-1], out_channels=dec_channels[-1],
-                      kernel_size=3, stride=1, padding=1, use_norm=use_norm),
+          
             EQLRConv2d(in_channels=dec_channels[-1], out_channels=number_of_components,
                        kernel_size=1, stride=1, padding=0, bias=True))
 
@@ -64,7 +63,7 @@ class UNet(nn.Module):
         for i, block in enumerate(self.decoder_blocks):
             x = F.interpolate(x, scale_factor=2, mode='bilinear', align_corners=False)
 
-            is_cut = i >= (num_dec - self.cut_connections)
+            is_cut = i >= (num_dec - 1 - self.cut_connections)  # ← add the -1 here
             if not is_cut:
                 skip = skips[-(i + 1)]
                 x = torch.cat([x, skip], dim=1)

@@ -22,7 +22,7 @@ class ResidualBlock(nn.Module):
         self.blocks = nn.ModuleList()
         self.norms = nn.ModuleList() # Store norms separately so we can pass routed_styles
         
-        for i in range(depth - 1):
+        for i in range(depth ):
             c_in = in_channels if i == 0 else out_channels
             
             # Using EQLRConv2d directly instead of ConvBlock so we can cleanly insert SPADE
