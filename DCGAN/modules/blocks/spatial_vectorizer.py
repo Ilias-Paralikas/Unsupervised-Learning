@@ -24,9 +24,6 @@ class SpatialVectorizer(nn.Module):
             stride=1, 
             padding=0
         )
-  
-
-
         
         # 2. Override the N(0, 1) initialization to 0.0
         # This ensures the Softmax starts uniformly (1/m) to prevent early collapse,
@@ -62,11 +59,12 @@ class SpatialVectorizer(nn.Module):
         # Step 3: Apply Softmax across the 'm' dimension (index 2)
         # This makes the m weights sum to 1 for every (component, pixel) pair
         routing_weights = F.softmax(routing_map, dim=2)
-        
+
+        normalized_vectors = F.normalize(self.shared_vectors, p=2, dim=-1, eps=1e-8)
         # Step 4: Compute the linear combination using einsum
         # routing_weights shape: (b, n, m, h, w)
         # shared_vectors shape:  (n, m, c') -> 'c' in einsum
         # Output shape:          (b, n, c', h, w)
-        out = torch.einsum('bnmhw,nmc->bnchw', routing_weights, self.shared_vectors)
+        out = torch.einsum('bnmhw,nmc->bnchw', routing_weights,normalized_vectors)
         
         return out

@@ -1,3 +1,4 @@
+.venv
 # Ignore cache folder
 cache/
 
