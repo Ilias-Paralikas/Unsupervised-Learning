@@ -79,15 +79,16 @@ class Decoder(nn.Module):
         
         assert len(skip_connections) == len(self.skip_channels) # becase the first is the x
         x = self.from_noise(x)
-
+        skip_connections = skip_connections.copy()
+        skip_connections.reverse()
         if get_intermediate_features:
             intermediate_features = []
             intermediate_features.append(x)
         
         for i, block in enumerate(self.blocks):
             x = F.interpolate(x, scale_factor=2, mode='bilinear', align_corners=False)
-            if i <= len(self.skip_channels):
-                x = torch.cat([x, skip_connections[-(i + 1)]], dim=1)
+            if i < len(self.skip_channels):
+                x = torch.cat([x, skip_connections[i ]], dim=1)
             x = block(x)
             if get_intermediate_features:
                 intermediate_features.append(x)

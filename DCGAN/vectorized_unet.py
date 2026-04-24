@@ -17,7 +17,7 @@ class VectorizedUNet(nn.Module):
                  encoder_channels,
                  decoder_channels,
                  vectorizer_output_channels=None,
-                 z_dim=256,
+                 z_dim=None,
                  number_of_components=4,   
                  degrees_of_freedom=None,     
                  grid_sizes=None,
@@ -28,6 +28,11 @@ class VectorizedUNet(nn.Module):
                  use_norm=False,
                  cut_connections=0):
         super().__init__()
+
+        if z_dim is None:
+            self.z_dim = encoder_channels[0]
+        else:
+            self.z_dim = z_dim
 
         if vectorizer_output_channels is not None and cut_connections!=0:
             raise ValueError('''You passed both a vectorizer output channels list
@@ -50,7 +55,7 @@ class VectorizedUNet(nn.Module):
         self.encoder_channels  = encoder_channels.copy()
         # ── Encoder ────────────────────────────────────────────────────
         self.encoder = Encoder(channels=self.encoder_channels,
-                               z_dim=z_dim,
+                               z_dim=self.z_dim,
                                block_depth=block_depth,
                                residual=residual,
                                img_channels=in_channels,
@@ -59,8 +64,8 @@ class VectorizedUNet(nn.Module):
 
         # ── Vectorizers ────────────────────────────────────────────────────
         self.bottleneck_vectorizer  =SpatialVectorizer(
-                in_channels=z_dim, 
-                out_channels=z_dim, 
+                in_channels=self.z_dim, 
+                out_channels=self.z_dim, 
                 number_of_components=self.number_of_components, 
                 degrees_of_freedom=self.degrees_of_freedom[0],
                 grid_size=self.grid_sizes[0]
@@ -89,7 +94,7 @@ class VectorizedUNet(nn.Module):
         self.skip_channels = self.vectorizer_output_channels.copy()
         self.decoder = Decoder(channels=self.decoder_channels,
                                skip_channels=self.skip_channels,
-                               z_dim=z_dim,
+                               z_dim=self.z_dim,
                                block_depth=1,
                                residual=False,
                                img_channels=out_channels,
