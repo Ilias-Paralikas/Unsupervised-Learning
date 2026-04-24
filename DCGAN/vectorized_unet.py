@@ -90,8 +90,8 @@ class VectorizedUNet(nn.Module):
         self.decoder = Decoder(channels=self.decoder_channels,
                                skip_channels=self.skip_channels,
                                z_dim=z_dim,
-                               block_depth=block_depth,
-                               residual=residual,
+                               block_depth=1,
+                               residual=False,
                                img_channels=out_channels,
                                use_norm=use_norm)
         
@@ -104,18 +104,18 @@ class VectorizedUNet(nn.Module):
         for c in self.decoder_channels[:-1]: 
             self.to_rgb_layers.append(
                 nn.Sequential(
-                ConvBlock(in_channels=c,
-                      out_channels=c,
-                      kernel_size=3,
-                      stride=1,
-                      padding=1,
-                      use_norm=use_norm),
-                ConvBlock(in_channels=c,
-                      out_channels=c,
-                      kernel_size=3,
-                      stride=1,
-                      padding=1,
-                      use_norm=use_norm),
+                # ConvBlock(in_channels=c,
+                #       out_channels=c,
+                #       kernel_size=3,
+                #       stride=1,
+                #       padding=1,
+                #       use_norm=use_norm),
+                # ConvBlock(in_channels=c,
+                #       out_channels=c,
+                #       kernel_size=3,
+                #       stride=1,
+                #       padding=1,
+                #       use_norm=use_norm),
                 EQLRConv2d(in_channels=c, 
                            out_channels=out_channels, # e.g., 3 for RGB or 1 for Grayscale
                            kernel_size=1, 
