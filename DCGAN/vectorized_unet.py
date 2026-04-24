@@ -4,6 +4,7 @@ import torch.nn.functional as F
 
 
 from .modules.blocks.eq_lr_layers import EQLRConv2d
+from .modules.blocks import ConvBlock
 
 from .encoder import Encoder
 from .decoder import Decoder
@@ -13,11 +14,13 @@ from .modules.blocks import SpatialVectorizer
 
 class VectorizedUNet(nn.Module):
     def __init__(self,
-                 channels,
+                 encoder_channels,
+                 decoder_channels,
                  vectorizer_output_channels=None,
                  z_dim=256,
                  number_of_components=4,   
                  degrees_of_freedom=None,     
+                 grid_sizes=None,
                  block_depth=2,
                  residual=True,
                  in_channels=3,
@@ -32,13 +35,19 @@ class VectorizedUNet(nn.Module):
                              Chances are that this is not intentional
                              Make sure you only pass one of the two''')
         self.number_of_components= number_of_components
+
+        if grid_sizes is None:
+            self.grid_sizes = [4]*(len(encoder_channels))
+        else:
+            self.grid_sizes = grid_sizes.copy()
+
         if degrees_of_freedom is None:
-            self.degrees_of_freedom = [8]*(len(channels))
+            self.degrees_of_freedom = [8]*(len(encoder_channels))
         else:
             self.degrees_of_freedom = degrees_of_freedom.copy()
 
         self.cut_connections = cut_connections
-        self.encoder_channels  = channels.copy()
+        self.encoder_channels  = encoder_channels.copy()
         # ── Encoder ────────────────────────────────────────────────────
         self.encoder = Encoder(channels=self.encoder_channels,
                                z_dim=z_dim,
@@ -53,10 +62,11 @@ class VectorizedUNet(nn.Module):
                 in_channels=z_dim, 
                 out_channels=z_dim, 
                 number_of_components=self.number_of_components, 
-                degrees_of_freedom=self.degrees_of_freedom[0]
+                degrees_of_freedom=self.degrees_of_freedom[0],
+                grid_size=self.grid_sizes[0]
         )
     
-        self.vectorizer_input_channels = channels.copy()
+        self.vectorizer_input_channels = encoder_channels.copy()
         if vectorizer_output_channels is None:
             self.vectorizer_output_channels = self.encoder_channels[:-(cut_connections+1)]
         else: 
@@ -69,12 +79,13 @@ class VectorizedUNet(nn.Module):
                 in_channels=self.vectorizer_input_channels[i], 
                 out_channels=self.vectorizer_output_channels[i], 
                 number_of_components=self.number_of_components, 
-                degrees_of_freedom=self.degrees_of_freedom[i+1]
+                degrees_of_freedom=self.degrees_of_freedom[i+1],
+                grid_size=self.grid_sizes[i+1]
             ))
 
      
         # ── Decoder ────────────────────────────────────────────────────
-        self.decoder_channels = channels.copy()
+        self.decoder_channels = decoder_channels.copy()
         self.skip_channels = self.vectorizer_output_channels.copy()
         self.decoder = Decoder(channels=self.decoder_channels,
                                skip_channels=self.skip_channels,
@@ -92,11 +103,25 @@ class VectorizedUNet(nn.Module):
         
         for c in self.decoder_channels[:-1]: 
             self.to_rgb_layers.append(
+                nn.Sequential(
+                ConvBlock(in_channels=c,
+                      out_channels=c,
+                      kernel_size=3,
+                      stride=1,
+                      padding=1,
+                      use_norm=use_norm),
+                ConvBlock(in_channels=c,
+                      out_channels=c,
+                      kernel_size=3,
+                      stride=1,
+                      padding=1,
+                      use_norm=use_norm),
                 EQLRConv2d(in_channels=c, 
                            out_channels=out_channels, # e.g., 3 for RGB or 1 for Grayscale
                            kernel_size=1, 
                            stride=1, 
                            padding=0)
+            )
             )
    
 
