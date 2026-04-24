@@ -52,12 +52,12 @@ class Decoder(nn.Module):
 
 
         self.final_block =nn.Sequential(
-            ConvBlock(in_channels=self.channels[-1],
-                      out_channels=self.channels[-1],
-                      kernel_size=3,
-                      stride=1,
-                      padding=1,
-                      use_norm=use_norm),
+            # ConvBlock(in_channels=self.channels[-1],
+            #           out_channels=self.channels[-1],
+            #           kernel_size=3,
+            #           stride=1,
+            #           padding=1,
+            #           use_norm=use_norm),
             ConvBlock(in_channels=self.channels[-1],
                       out_channels=self.channels[-1],
                       kernel_size=3,

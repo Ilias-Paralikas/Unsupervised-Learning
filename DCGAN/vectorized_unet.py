@@ -21,11 +21,13 @@ class VectorizedUNet(nn.Module):
                  number_of_components=4,   
                  degrees_of_freedom=None,     
                  grid_sizes=None,
-                 block_depth=2,
-                 residual=True,
+                 encoder_block_depth=2,
+                 decoder_block_depth=1,
+                 encoder_residual=True,
+                 decoder_residual=False,
                  in_channels=3,
                  out_channels=3,
-                 use_norm=False,
+                 use_norm=True,
                  cut_connections=0):
         super().__init__()
 
@@ -56,8 +58,8 @@ class VectorizedUNet(nn.Module):
         # ── Encoder ────────────────────────────────────────────────────
         self.encoder = Encoder(channels=self.encoder_channels,
                                z_dim=self.z_dim,
-                               block_depth=block_depth,
-                               residual=residual,
+                               block_depth=encoder_block_depth,
+                               residual=encoder_residual,
                                img_channels=in_channels,
                                use_norm=use_norm)   
         
@@ -95,8 +97,8 @@ class VectorizedUNet(nn.Module):
         self.decoder = Decoder(channels=self.decoder_channels,
                                skip_channels=self.skip_channels,
                                z_dim=self.z_dim,
-                               block_depth=1,
-                               residual=False,
+                               block_depth=decoder_block_depth,
+                               residual=decoder_residual,
                                img_channels=out_channels,
                                use_norm=use_norm)
         
@@ -115,12 +117,12 @@ class VectorizedUNet(nn.Module):
                 #       stride=1,
                 #       padding=1,
                 #       use_norm=use_norm),
-                # ConvBlock(in_channels=c,
-                #       out_channels=c,
-                #       kernel_size=3,
-                #       stride=1,
-                #       padding=1,
-                #       use_norm=use_norm),
+                ConvBlock(in_channels=c,
+                      out_channels=c,
+                      kernel_size=3,
+                      stride=1,
+                      padding=1,
+                      use_norm=use_norm),
                 EQLRConv2d(in_channels=c, 
                            out_channels=out_channels, # e.g., 3 for RGB or 1 for Grayscale
                            kernel_size=1, 
