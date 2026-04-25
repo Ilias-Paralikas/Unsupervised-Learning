@@ -22,9 +22,9 @@ class VectorizedUNet(nn.Module):
                  degrees_of_freedom=None,     
                  grid_sizes=None,
                  encoder_block_depth=2,
-                 decoder_block_depth=1,
+                 decoder_block_depth=2,
                  encoder_residual=True,
-                 decoder_residual=False,
+                 decoder_residual=True,
                  in_channels=3,
                  out_channels=3,
                  use_norm=True,
@@ -78,7 +78,7 @@ class VectorizedUNet(nn.Module):
             self.vectorizer_output_channels = self.encoder_channels[:-(cut_connections+1)]
         else: 
             self.vectorizer_output_channels = vectorizer_output_channels.copy()
-
+          
         self.vectorizers = nn.ModuleList()
         for i in range(len(self.vectorizer_output_channels)):
             # Vectorizer outputs shape (b, n, c', h, w) 
@@ -111,12 +111,12 @@ class VectorizedUNet(nn.Module):
         for c in self.decoder_channels[:-1]: 
             self.to_rgb_layers.append(
                 nn.Sequential(
-                # ConvBlock(in_channels=c,
-                #       out_channels=c,
-                #       kernel_size=3,
-                #       stride=1,
-                #       padding=1,
-                #       use_norm=use_norm),
+                ConvBlock(in_channels=c,
+                      out_channels=c,
+                      kernel_size=3,
+                      stride=1,
+                      padding=1,
+                      use_norm=use_norm),
                 ConvBlock(in_channels=c,
                       out_channels=c,
                       kernel_size=3,
@@ -187,3 +187,16 @@ class VectorizedUNet(nn.Module):
         all_imgs.append(final_img)
             
         return all_imgs
+    
+
+    def similarity_losses(self):
+        intra_loss_acc =0
+        inter_loss_acc =0
+        for vectorizer in self.vectorizers:
+            intra_loss, inter_loss = vectorizer.similarity_loss()   
+            intra_loss_acc += intra_loss
+            inter_loss_acc += inter_loss
+
+        intra_loss_acc /= len(self.vectorizers)
+        inter_loss_acc /= len(self.vectorizers)
+        return intra_loss_acc, inter_loss_acc
