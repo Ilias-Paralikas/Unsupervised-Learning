@@ -48,7 +48,7 @@ class SpatialVectorizer(nn.Module):
         # Grouped conv (groups=N) ensures component n only sees its own D channels.
         # Input:  (B, N*D, H, W)
         # Output: (B, N*out_channels, H, W)
-        self.proj = nn.Conv2d(
+        self.proj = EQLRConv2d(
             in_channels=self.N * self.D,
             out_channels=self.N * self.out_channels,
             kernel_size=1,
@@ -185,6 +185,7 @@ class SpatialVectorizer(nn.Module):
         out = out.view(b, self.N * self.D, h, w)
         # grouped conv: component n sees only channels [n*D : (n+1)*D]
         # (B, N*D, H, W) → (B, N*out_channels, H, W)
+        out = out * (self.D / self.C) # becasue of eqlr
         out = self.proj(out)
         # (B, N*out_channels, H, W) → (B, N, out_channels, H, W)
         out = out.view(b, self.N, self.out_channels, h, w)
