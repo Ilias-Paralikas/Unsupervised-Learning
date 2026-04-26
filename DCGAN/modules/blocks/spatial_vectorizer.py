@@ -111,6 +111,12 @@ class SpatialVectorizer(nn.Module):
         """
         # Unit-normalise tiles for cosine similarity
         # (N, D, gs*gs)
+        if self.gs == 1:
+            # Spatial similarity is meaningless for 1x1 tiles, and L2 
+            # normalization of a scalar breaks gradient flow.
+            zero = torch.tensor(0.0, device=self.shared_tiles.device, requires_grad=True)
+            return zero, zero
+
         flat   = self.shared_tiles.view(self.N, self.D, -1)
         normed = F.normalize(flat, p=2, dim=-1, eps=1e-8)          # (N, D, gs*gs)
 

@@ -16,25 +16,24 @@ class VectorizedUNet(nn.Module):
     def __init__(self,
                  encoder_channels,
                  decoder_channels,
-                 vectorizer_output_channels=None,
-                 z_dim=None,
+                 vectorizer_output_channels,
+                 z_dim,
+                 degrees_of_freedom,     
+                 grid_sizes,
+                 rgb_depth,
                  number_of_components=4,   
-                 degrees_of_freedom=None,     
-                 grid_sizes=None,
                  encoder_block_depth=2,
-                 decoder_block_depth=2,
+                 decoder_block_depth=1,
                  encoder_residual=True,
-                 decoder_residual=True,
+                 decoder_residual=False,
                  in_channels=3,
                  out_channels=3,
                  use_norm=True,
                  cut_connections=0):
         super().__init__()
 
-        if z_dim is None:
-            self.z_dim = encoder_channels[0]
-        else:
-            self.z_dim = z_dim
+      
+        self.z_dim = z_dim
 
         if vectorizer_output_channels is not None and cut_connections!=0:
             raise ValueError('''You passed both a vectorizer output channels list
@@ -43,17 +42,12 @@ class VectorizedUNet(nn.Module):
                              Make sure you only pass one of the two''')
         self.number_of_components= number_of_components
 
-        if grid_sizes is None:
-            self.grid_sizes = [4]*(len(encoder_channels))
-        else:
-            self.grid_sizes = grid_sizes.copy()
 
-        if degrees_of_freedom is None:
-            self.degrees_of_freedom = [8]*(len(encoder_channels))
-        else:
-            self.degrees_of_freedom = degrees_of_freedom.copy()
-
+        self.grid_sizes = grid_sizes.copy()
+        self.degrees_of_freedom = degrees_of_freedom.copy()
+        self.rgb_depth = rgb_depth.copy()
         self.cut_connections = cut_connections
+        self.out_channels = out_channels
         self.encoder_channels  = encoder_channels.copy()
         # ── Encoder ────────────────────────────────────────────────────
         self.encoder = Encoder(channels=self.encoder_channels,
@@ -65,26 +59,28 @@ class VectorizedUNet(nn.Module):
         
 
         # ── Vectorizers ────────────────────────────────────────────────────
-        self.bottleneck_vectorizer  =SpatialVectorizer(
-                in_channels=self.z_dim, 
-                out_channels=self.z_dim, 
-                number_of_components=self.number_of_components, 
-                degrees_of_freedom=self.degrees_of_freedom[0],
-                grid_size=self.grid_sizes[0]
-        )
-    
+
         self.vectorizer_input_channels = encoder_channels.copy()
         if vectorizer_output_channels is None:
             self.vectorizer_output_channels = self.encoder_channels[:-(cut_connections+1)]
         else: 
             self.vectorizer_output_channels = vectorizer_output_channels.copy()
           
+        self.bottleneck_vectorizer  =SpatialVectorizer(
+                in_channels=self.z_dim, 
+                out_channels=self.vectorizer_output_channels[0], 
+                number_of_components=self.number_of_components, 
+                degrees_of_freedom=self.degrees_of_freedom[0],
+                grid_size=self.grid_sizes[0]
+        )
+    
+
         self.vectorizers = nn.ModuleList()
-        for i in range(len(self.vectorizer_output_channels)):
+        for i in range(len(self.vectorizer_output_channels)-1):
             # Vectorizer outputs shape (b, n, c', h, w) 
             self.vectorizers.append(SpatialVectorizer(
                 in_channels=self.vectorizer_input_channels[i], 
-                out_channels=self.vectorizer_output_channels[i], 
+                out_channels=self.vectorizer_output_channels[i+1], 
                 number_of_components=self.number_of_components, 
                 degrees_of_freedom=self.degrees_of_freedom[i+1],
                 grid_size=self.grid_sizes[i+1]
@@ -93,10 +89,10 @@ class VectorizedUNet(nn.Module):
      
         # ── Decoder ────────────────────────────────────────────────────
         self.decoder_channels = decoder_channels.copy()
-        self.skip_channels = self.vectorizer_output_channels.copy()
+        self.skip_channels = self.vectorizer_output_channels[1:].copy()
         self.decoder = Decoder(channels=self.decoder_channels,
                                skip_channels=self.skip_channels,
-                               z_dim=self.z_dim,
+                               z_dim=self.vectorizer_output_channels[0],
                                block_depth=decoder_block_depth,
                                residual=decoder_residual,
                                img_channels=out_channels,
@@ -107,84 +103,97 @@ class VectorizedUNet(nn.Module):
         # We need a to_rgb layer for every feature map returned by the Decoder
         # The Decoder returns features from `from_noise` (channels[0]) 
         # and then from every block (channels[1], channels[2], etc.) except the very last one.
+
+        for c, depth in zip(self.decoder_channels, rgb_depth):
+            layers = [
+                ConvBlock(
+                    in_channels=c,
+                    out_channels=c,
+                    kernel_size=3,
+                    stride=1,
+                    padding=1,
+                    use_norm=use_norm
+                )
+                for _ in range(depth)
+            ]
+            # Final layer is always present
+            layers.append(
+                EQLRConv2d(
+                    in_channels=c,
+                    out_channels=out_channels,  # e.g., 3 for RGB or 1 for Grayscale
+                    kernel_size=1,
+                    stride=1,
+                    padding=0
+                )
+            )
+            self.to_rgb_layers.append(nn.Sequential(*layers))
         
-        for c in self.decoder_channels[:-1]: 
-            self.to_rgb_layers.append(
-                nn.Sequential(
-                ConvBlock(in_channels=c,
-                      out_channels=c,
-                      kernel_size=3,
-                      stride=1,
-                      padding=1,
-                      use_norm=use_norm),
-                ConvBlock(in_channels=c,
-                      out_channels=c,
-                      kernel_size=3,
-                      stride=1,
-                      padding=1,
-                      use_norm=use_norm),
-                EQLRConv2d(in_channels=c, 
-                           out_channels=out_channels, # e.g., 3 for RGB or 1 for Grayscale
-                           kernel_size=1, 
-                           stride=1, 
-                           padding=0)
-            )
-            )
-   
 
 
     def forward(self, 
-                x, 
-                seg_masks, 
-                return_intermediates=True):
-        def combine(reconstructions,segmentations):
-            pooled_masks = segmentations.unsqueeze(2)
-            blended_skip = (reconstructions * pooled_masks).sum(dim=1)
-            return blended_skip
-        
-        def mask_vectorizer_output(vec_out, seg_masks):
-            b, n, c_prime, h, w = vec_out.shape
-            pooled_masks = F.adaptive_avg_pool2d(seg_masks, (h, w)) 
+                x,
+                seg_probs=None):
+
+        def combine(feature_components, seg_probs):
+            _, _, _, h, w = feature_components.shape
+            # 2. Resize masks to match current feature map resolution
+            resized_masks = F.interpolate(seg_probs, size=(h, w), mode='bilinear', align_corners=False)
+            resized_masks = resized_masks.unsqueeze(2) # [b, n, 1, h, w]
             
-            blended_skip = combine(vec_out, pooled_masks)
-            return blended_skip
-     
+            # 3. Combine in FEATURE space
+            # Multiply each component's feature map by its mask and sum
+            blended_feature = (feature_components * resized_masks).sum(dim=1) # shape: [b, c, h, w]
+            return blended_feature
 
         # encoder
         bottleneck, skip_connections = self.encoder(x, return_features=True)
 
         vectorized_bottleneck = self.bottleneck_vectorizer (bottleneck)
-        vectorized_bottleneck = mask_vectorizer_output(vectorized_bottleneck, seg_masks)
-
+        b, _, c, h, w = vectorized_bottleneck.shape
+        bottleneck_super_batch = vectorized_bottleneck.view(b * self.number_of_components, c, h, w)
         active_skips = skip_connections[self.cut_connections:]
         active_skips.reverse()
-        blended_skips = []
+
+
+        skip_connections  =[]
         for skip_feature, vectorizer in zip(active_skips, self.vectorizers):
             vec_out = vectorizer(skip_feature)
-            blended_skip = mask_vectorizer_output(vec_out, seg_masks)
-            blended_skips.append(blended_skip)
+            b, _, c, h, w = vec_out.shape
+            # 2. Collapse batch and components into a "super batch"
+            super_batch = vec_out.view(b * self.number_of_components, c, h, w)
+            skip_connections.append(super_batch)
 
 
-        blended_skips.reverse()
-        final_img, intermediate_features = self.decoder(
-            vectorized_bottleneck, 
-            skip_connections=blended_skips, 
+        skip_connections.reverse()
+        _, intermediate_features = self.decoder(
+            bottleneck_super_batch, 
+            skip_connections=skip_connections, 
             get_intermediate_features=True
         )
-        
-        if not return_intermediates:
-            return final_img
+
             
         # Project all intermediate features to RGB images
         all_imgs = []
-        for feature, to_rgb_layer in zip(intermediate_features, self.to_rgb_layers):
-            rgb = to_rgb_layer(feature)
+        for features, to_rgb_layer in zip(intermediate_features, self.to_rgb_layers):
+            if seg_probs is not None:
+                bn, c_curr, h_curr, w_curr = features.shape 
+                # Reshape out of the "super batch" back into components
+                features = features.view(bn// self.number_of_components, self.number_of_components, c_curr, h_curr, w_curr)
+
+                features = combine(features, seg_probs)
+            rgb = to_rgb_layer(features)
             rgb = torch.tanh(rgb)
+            if seg_probs is None:
+                bn, _, h_curr, w_curr = rgb.shape 
+
+                rgb= rgb.view(bn// self.number_of_components, 
+                              self.number_of_components, 
+                              self.out_channels,
+                              h_curr, 
+                              w_curr)
+
             all_imgs.append(rgb)
-            
-        # 2. Append the final 256x256 image to the end of the list!
-        final_img= torch.tanh(final_img)
-        all_imgs.append(final_img)
+       
             
         return all_imgs
     
