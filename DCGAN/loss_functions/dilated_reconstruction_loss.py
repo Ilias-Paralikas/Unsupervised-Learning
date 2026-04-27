@@ -11,7 +11,9 @@ class DilatedReconstructionLoss(nn.Module):
         self.padding = dilation_kernel_size // 2
         self.weight = weight
 
-    def forward(self, independent_reconstructions, target_img, seg_probs):
+
+    
+    def get_dilated_masks(self, independent_reconstructions, target_img, seg_probs):
         """
         independent_reconstructions: (B, N, 3, H, W) - outputs when seg_probs=None
         target_img: (B, 3, H, W) - ground truth image
@@ -39,6 +41,10 @@ class DilatedReconstructionLoss(nn.Module):
         # Add channel dimension so we can multiply with RGB images
         dilated_masks = dilated_masks.unsqueeze(2) # (B, N, 1, H, W)
         
+        return dilated_masks
+
+    def forward(self, independent_reconstructions, target_img, seg_probs):
+        dilated_masks = self.get_dilated_masks(independent_reconstructions, target_img, seg_probs)
         # 3. Calculate Localized MSE Loss
         # Expand target to match N components
         target_expanded = target_img.unsqueeze(1) # (B, 1, 3, H, W)
@@ -59,3 +65,4 @@ class DilatedReconstructionLoss(nn.Module):
         loss = sum_error / (pixels_in_masks + 1e-8)
         loss = self.weight * loss
         return loss
+    

@@ -32,7 +32,8 @@ class SpatialVectorizer(nn.Module):
             out_channels=self.N * self.D,
             kernel_size=grid_size,
             stride=grid_size,
-            padding=0
+            padding=0,
+            bias =False
         )
 
         # ── 2. Shared tile codebook ───────────────────────────────────────────
@@ -54,7 +55,8 @@ class SpatialVectorizer(nn.Module):
             kernel_size=1,
             stride=1,
             padding=0,
-            groups=self.N
+            groups=self.N,
+            bias=False
         )
 
     # ── helpers ───────────────────────────────────────────────────────────────
@@ -70,26 +72,41 @@ class SpatialVectorizer(nn.Module):
         normed = normed * math.sqrt(self.gs ** 2)
         return normed.view(self.N, self.D, 1, self.gs, self.gs)
 
-    def _topk_ste(self, routing):
+    def _topk_ste(self, routing, training=True):
         """
-        Top-C hard selection with Straight-Through Estimator.
-
-        Forward  : binary mask — exactly C ones per (n, spatial location).
-        Backward : gradients flow through sigmoid(routing) so every tile trains.
-
-        Args:
-            routing  : (B, N, D, Hc, Wc)
-        Returns:
-            mask_ste : (B, N, D, Hc, Wc)
+        Top-C hard selection + 1 Random Tile (during training) with STE.
         """
-        _, topk_idx = torch.topk(routing, self.C, dim=2)            # (B, N, C, Hc, Wc)
-        mask_hard   = torch.zeros_like(routing)
+        b, n, d, hc, wc = routing.shape
+        
+        # 1. Get the Top-C indices
+        _, topk_idx = torch.topk(routing, self.C, dim=2)  # (B, N, C, Hc, Wc)
+        mask_hard = torch.zeros_like(routing)
         mask_hard.scatter_(2, topk_idx, 1.0)
+        
+        # 2. Add 1 Random Tile during training
+        if training and self.C < self.D:
+            # We want to pick 1 random tile that is NOT already in the Top-C.
+            # Easiest way: add Gumbel noise to the routing, mask out the Top-C, 
+            # and pick the argmax of what's left.
+            
+            with torch.no_grad():
+                # Create random noise
+                noise = torch.rand_like(routing)
+                
+                # Make the already-selected Top-C tiles infinitely bad so they aren't picked again
+                noise = noise.masked_fill(mask_hard.bool(), -1e9)
+                
+                # Pick the 1 random tile
+                _, random_idx = torch.max(noise, dim=2, keepdim=True) # (B, N, 1, Hc, Wc)
+                
+                # Add it to the hard mask
+                mask_hard.scatter_(2, random_idx, 1.0)
+                
+                # NOTE: The mask now has exactly (C + 1) ones per spatial location!
 
+        # 3. Straight-Through Estimator
         mask_soft = torch.sigmoid(routing)
-
         return mask_soft + (mask_hard - mask_soft).detach()
-
     # ── similarity loss ───────────────────────────────────────────────────────
 
     def similarity_loss(self):
@@ -191,7 +208,6 @@ class SpatialVectorizer(nn.Module):
         out = out.view(b, self.N * self.D, h, w)
         # grouped conv: component n sees only channels [n*D : (n+1)*D]
         # (B, N*D, H, W) → (B, N*out_channels, H, W)
-        out = out * (self.D / self.C) # becasue of eqlr
         out = self.proj(out)
         # (B, N*out_channels, H, W) → (B, N, out_channels, H, W)
         out = out.view(b, self.N, self.out_channels, h, w)

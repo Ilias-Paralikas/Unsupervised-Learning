@@ -7,7 +7,7 @@ class SoftRoutingLoss(nn.Module):
         self.temperature = temperature
         self.weight = weight
 
-    def forward(self, reconstructions, target_img, seg_logits):
+    def get_targets(self, reconstructions, target_img, seg_logits):
         """
         reconstructions: (B, N, C, H, W) 
         target_img: (B, C, H, W) 
@@ -22,6 +22,14 @@ class SoftRoutingLoss(nn.Module):
             # Convert errors to target probabilities
             pseudo_targets = F.softmax(-pixel_errors / self.temperature, dim=1)
         
+        return pseudo_targets
+    def forward(self, reconstructions, target_img, seg_logits):
+        """
+        reconstructions: (B, N, C, H, W) 
+        target_img: (B, C, H, W) 
+        seg_logits: (B, N, H, W)
+        """
+        pseudo_targets= self.get_targets(reconstructions, target_img, seg_logits)
         # --- EXPLICIT SOFT CROSS ENTROPY ---
         # 1. Convert logits to log-probabilities
         log_probs = F.log_softmax(seg_logits, dim=1)
@@ -34,3 +42,5 @@ class SoftRoutingLoss(nn.Module):
         loss = torch.mean(pixel_loss)
         
         return self.weight * loss
+    
+        
