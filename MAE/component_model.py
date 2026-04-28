@@ -4,23 +4,62 @@ import torch.nn.functional as F
 
 from .encoder import MAEEncoder
 from .decoder import MAEDecoder
+from .modules.patch_embed import PatchEmbed
+
+# reuse EQLRConv2d so the smoother follows the same weight conventions
+import sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from DCGAN.modules.blocks.eq_lr_layers import EQLRConv2d
+
+
+class SeamSmoother(nn.Module):
+    """
+    Two learnable 3x3 convs with a residual connection.
+    Applied to the composed reconstruction after blending — heals the
+    periodic 16-pixel patch-boundary seams before the discriminator sees
+    the image.
+
+    Zero-init on the second conv guarantees near-identity at epoch 0,
+    so MSE / routing losses warm up without interference.
+    """
+    def __init__(self, depth: int = 1, channels: int = 3):
+        super().__init__()
+        self.layers = nn.ModuleList()
+        for _ in range(depth-1):
+            self.layers.append(EQLRConv2d(channels, channels, kernel_size=3, stride=1, padding=1))
+            self.layers.append(nn.LeakyReLU(0.2, inplace=True))
+        self.final_conv = EQLRConv2d(channels, channels, kernel_size=3, stride=1, padding=1)
+
+        # Zero-init → identity residual at the start of training
+        nn.init.zeros_(self.final_conv.conv.weight)
+        nn.init.zeros_(self.final_conv.conv.bias)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+
+        for layer in self.layers:
+            x = layer(x)
+        x= self.final_conv(x)
+        x = torch.tanh(x)
+        return x
 
 
 class ComponentMAE(nn.Module):
     """
-    One shared MAEEncoder  +  N independent shallow MAEDecoders.
+    One shared MAEEncoder  +  N independent shallow MAEDecoders  +  SeamSmoother.
 
-    Each MAEDecoder owns its own ``self.mask_token`` nn.Parameter —
-    the component-specific prior that replaces the SpatialVectorizer
-    tile codebook from VectorizedUNet.
+    Each MAEDecoder owns its own mask_token parameter — the per-component prior.
 
-    Interface is intentionally kept compatible with VectorizedUNet:
-        forward(x, seg_probs)  → (output_list, mask)
-        output_list[-1]        → same shape as before
+    forward(x, seg_probs=None) → (output_list, mask)
 
-    When seg_probs is None  : output_list[0] shape (B, N, C, H, W)
-    When seg_probs provided : output_list[0] shape (B, C, H, W)
-    mask                    : (B, num_patches)  1 = masked  0 = visible
+        seg_probs is None  : output_list[0] shape (B, N, C, H, W)
+                             raw per-component reconstructions, NO smoother applied
+                             (routing / dilated losses use these directly)
+
+        seg_probs provided : output_list[0] shape (B, C, H, W)
+                             composed + SeamSmoother applied
+                             (MSE loss and discriminator use this)
+
+        mask               : (B, num_patches)  1=masked  0=visible
     """
 
     def __init__(self,
@@ -36,7 +75,8 @@ class ComponentMAE(nn.Module):
                  mlp_ratio:            float = 4.0,
                  mask_ratio:           float = 0.75,
                  dropout:              float = 0.0,
-                 number_of_components: int   = 4):
+                 number_of_components: int   = 4,
+                 smoother_depth:       int   = 1):
         super().__init__()
 
         assert img_size % patch_size == 0, \
@@ -48,7 +88,7 @@ class ComponentMAE(nn.Module):
         self.img_size             = img_size
         self.num_patches          = (img_size // patch_size) ** 2
 
-        # ── Shared encoder (patch embed + pos embed + masking + ViT blocks) ──
+        # ── Shared encoder ────────────────────────────────────────────────────
         self.encoder = MAEEncoder(
             img_size    = img_size,
             patch_size  = patch_size,
@@ -62,10 +102,7 @@ class ComponentMAE(nn.Module):
         )
 
         # ── N independent shallow decoders ────────────────────────────────────
-        # Instantiating N separate MAEDecoder objects gives each its OWN
-        # self.mask_token parameter automatically — no extra bookkeeping needed.
-        # Those mask tokens are the per-component prior (what the model fills
-        # in for masked patches of component i).
+        # Each instance gets its own self.mask_token (the component prior).
         self.decoders = nn.ModuleList([
             MAEDecoder(
                 num_patches       = self.num_patches,
@@ -81,7 +118,13 @@ class ComponentMAE(nn.Module):
             for _ in range(number_of_components)
         ])
 
-    # ── Patch utilities (mirrored from MAEReconstructionLoss for convenience) ─
+        # ── Seam smoother ─────────────────────────────────────────────────────
+        # Applied ONLY to the composed blended output (seg_probs path).
+        # Raw per-component outputs are never smoothed so routing / dilated
+        # losses receive clean per-component gradients.
+        self.seam_smoother = SeamSmoother(channels=in_channels, depth=smoother_depth)
+
+    # ── Patch utilities ───────────────────────────────────────────────────────
 
     def patchify(self, imgs: torch.Tensor) -> torch.Tensor:
         """(B, C, H, W) → (B, N, patch_size² × C)"""
@@ -109,46 +152,44 @@ class ComponentMAE(nn.Module):
         """
         Args:
             x         : (B, C, H, W)
-            seg_probs : (B, N, H, W)  softmax probabilities from UNet.
-                        Pass None for independent (unblended) mode.
+            seg_probs : (B, N, H, W) softmax probabilities from UNet, or None.
 
         Returns:
-            output_list : list with one element — mirrors the multi-scale list
-                          interface of VectorizedUNet so ``[-1]`` still works.
-                          elem shape: (B, C, H, W)     when seg_probs given
-                                      (B, N, C, H, W)  when seg_probs is None
-            mask        : (B, num_patches)  1 = masked position
+            output_list : one-element list — use [-1] to access the tensor.
+                          (B, C, H, W)     seg_probs provided → smoothed blend
+                          (B, N, C, H, W)  seg_probs is None  → raw components
+            mask        : (B, num_patches)  1 = masked
         """
 
         # ── 1. Shared encode ──────────────────────────────────────────────────
         latent, mask, ids_restore = self.encoder(x)
-        # latent      : (B, N_visible + 1, encoder_embed_dim)  — +1 for CLS
-        # mask        : (B, num_patches)   binary
-        # ids_restore : (B, num_patches)   inverse shuffle permutation
 
         # ── 2. N independent decodes ──────────────────────────────────────────
-        # Every decoder sees the SAME latent but uses its OWN mask tokens,
-        # so each specialises in reconstructing a different component.
         component_imgs = []
         for decoder in self.decoders:
             pred = decoder(latent, ids_restore)   # (B, num_patches, patch_dim)
             img  = self.unpatchify(pred)           # (B, C, H, W)
-            img  = torch.tanh(img)                # output in [-1, 1]
+            img  = torch.tanh(img)
             component_imgs.append(img)
 
         # (B, N, C, H, W)
         independent_recs = torch.stack(component_imgs, dim=1)
 
+        # Independent mode — return raw components, no smoothing
         if seg_probs is None:
             return [independent_recs], mask
 
-        # ── 3. Compose by segmentation probabilities ──────────────────────────
-        # Each pixel is the weighted sum of component reconstructions.
-        # seg_probs: (B, N, H, W) → (B, N, 1, H, W) to broadcast over C
-        seg_expanded = seg_probs.unsqueeze(2)
-        final_rec    = (independent_recs * seg_expanded).sum(dim=1)  # (B, C, H, W)
+        # ── 3. Compose ────────────────────────────────────────────────────────
+        seg_expanded = seg_probs.unsqueeze(2)                              # (B, N, 1, H, W)
+        composed     = (independent_recs * seg_expanded).sum(dim=1)       # (B, C, H, W)
 
-        return [final_rec], mask
+        # ── 4. Heal patch-boundary seams ──────────────────────────────────────
+        # SeamSmoother: two learnable 3x3 convs + residual.
+        # Zero-initialised at construction → identity at epoch 0.
+        # Gradient from the discriminator trains it to smooth seams specifically.
+        final_rec = self.seam_smoother(composed)
+
+        return final_rec, mask
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
