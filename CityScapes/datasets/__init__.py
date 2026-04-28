@@ -1,1 +1,1 @@
-from .msg_dataset import CityScapesMultiResolutionDataset
+from .Cityscapes_dataset import CityscapesDataset
