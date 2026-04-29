@@ -19,7 +19,7 @@ class MAEReconstructionLoss(nn.Module):
         self,
         patch_size:       int   = 16,
         in_channels:      int   = 3,
-        normalize_target: bool  = True,
+        normalize_target: bool  = False,
         weight:           float = 1.0,
     ):
         super().__init__()

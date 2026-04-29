@@ -35,7 +35,7 @@ class SeamSmoother(nn.Module):
         nn.init.zeros_(self.final_conv.conv.bias)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return x
+        # return x
         residual = x          # ← save the composed image BEFORE processing
         h = x
         for layer in self.layers:
@@ -129,23 +129,22 @@ class ComponentMAE(nn.Module):
     # ── Patch utilities ───────────────────────────────────────────────────────
 
     def patchify(self, imgs: torch.Tensor) -> torch.Tensor:
-        """(B, C, H, W) → (B, N, patch_size² × C)"""
+        """(B, C, H, W) → (B, N, patch_size² × C)  — channels-last ordering"""
         p = self.patch_size
         B, C, H, W = imgs.shape
         h, w = H // p, W // p
         x = imgs.reshape(B, C, h, p, w, p)
-        return x.permute(0, 2, 4, 1, 3, 5).reshape(B, h * w, C * p * p)
+        return x.permute(0, 2, 4, 3, 5, 1).reshape(B, h * w, p * p * C)
+        #              ↑ (B, h, w, p, p, C) — C is last, matches decoder & loss
 
     def unpatchify(self, x: torch.Tensor) -> torch.Tensor:
-        """(B, N, patch_size² × C) → (B, C, H, W)"""
+        """(B, N, patch_size² × C) → (B, C, H, W)  — channels-last ordering"""
         p = self.patch_size
         B, N, _ = x.shape
         h = w = int(N ** 0.5)
-        x = x.reshape(B, h, w, self.in_channels, p, p)
-        return x.permute(0, 3, 1, 4, 2, 5).reshape(
-            B, self.in_channels, h * p, w * p
-        )
-
+        x = x.reshape(B, h, w, p, p, self.in_channels)
+        #                        ↑ p, p, C — C is last, matches decoder output
+        return x.permute(0, 5, 1, 3, 2, 4).reshape(B, self.in_channels, h * p, w * p)
     # ── Forward ───────────────────────────────────────────────────────────────
 
    
