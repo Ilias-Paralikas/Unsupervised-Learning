@@ -7,7 +7,7 @@ class SoftRoutingLoss(nn.Module):
         self.temperature = temperature
         self.weight = weight
 
-    def get_targets(self, reconstructions, target_img, seg_logits):
+    def get_targets(self, reconstructions, target_img):
         """
         reconstructions: (B, N, C, H, W) 
         target_img: (B, C, H, W) 
@@ -29,7 +29,7 @@ class SoftRoutingLoss(nn.Module):
         target_img: (B, C, H, W) 
         seg_logits: (B, N, H, W)
         """
-        pseudo_targets= self.get_targets(reconstructions, target_img, seg_logits)
+        pseudo_targets= self.get_targets(reconstructions, target_img)
         # --- EXPLICIT SOFT CROSS ENTROPY ---
         # 1. Convert logits to log-probabilities
         log_probs = F.log_softmax(seg_logits, dim=1)

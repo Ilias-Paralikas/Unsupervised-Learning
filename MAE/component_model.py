@@ -35,12 +35,14 @@ class SeamSmoother(nn.Module):
         nn.init.zeros_(self.final_conv.conv.bias)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-
-        for layer in self.layers:
-            x = layer(x)
-        x= self.final_conv(x)
-        x = torch.tanh(x)
         return x
+        residual = x          # ← save the composed image BEFORE processing
+        h = x
+        for layer in self.layers:
+            h = layer(h)
+        delta = self.final_conv(h)   # near-zero at init due to zero-init weights
+        # residual + delta ≈ residual at epoch 0  (identity behaviour)
+        return torch.clamp(residual + delta, -1.0, 1.0)
 
 
 class ComponentMAE(nn.Module):
@@ -146,52 +148,64 @@ class ComponentMAE(nn.Module):
 
     # ── Forward ───────────────────────────────────────────────────────────────
 
-    def forward(self,
-                x:         torch.Tensor,
-                seg_probs: torch.Tensor = None):
+   
+   # ── Mask utility ──────────────────────────────────────────────────────────
+
+    def expand_mask_to_pixels(self, mask: torch.Tensor) -> torch.Tensor:
         """
+        Upsample patch-level binary mask to pixel space.
+
         Args:
-            x         : (B, C, H, W)
-            seg_probs : (B, N, H, W) softmax probabilities from UNet, or None.
-
+            mask : (B, N)  1 = masked, 0 = visible
         Returns:
-            output_list : one-element list — use [-1] to access the tensor.
-                          (B, C, H, W)     seg_probs provided → smoothed blend
-                          (B, N, C, H, W)  seg_probs is None  → raw components
-            mask        : (B, num_patches)  1 = masked
+            (B, 1, H, W)  nearest-neighbor fill — each patch block is uniform
         """
+        B    = mask.shape[0]
+        grid = self.img_size // self.patch_size
+        mask_2d = mask.reshape(B, 1, grid, grid).float()
+        return F.interpolate(mask_2d, scale_factor=self.patch_size, mode='nearest')
 
-        # ── 1. Shared encode ──────────────────────────────────────────────────
+# ── Forward ───────────────────────────────────────────────────────────────
+
+    def forward(self,
+            x:                 torch.Tensor,
+            seg_probs:         torch.Tensor = None,
+            return_components: bool         = False):
+
+        # ── 1. Encode once ────────────────────────────────────────────────────
         latent, mask, ids_restore = self.encoder(x)
 
-        # ── 2. N independent decodes ──────────────────────────────────────────
+        # ── 2. N decoders, once ───────────────────────────────────────────────
         component_imgs = []
         for decoder in self.decoders:
-            pred = decoder(latent, ids_restore)   # (B, num_patches, patch_dim)
-            img  = self.unpatchify(pred)           # (B, C, H, W)
-            img  = torch.tanh(img)
-            component_imgs.append(img)
+            pred = decoder(latent, ids_restore)
+            img  = self.unpatchify(pred)
+            component_imgs.append(torch.tanh(img))
 
-        # (B, N, C, H, W)
-        independent_recs = torch.stack(component_imgs, dim=1)
+        independent_recs = torch.stack(component_imgs, dim=1)  # (B, N, C, H, W)
 
-        # Independent mode — return raw components, no smoothing
+        # ── 3. Independent-only mode ──────────────────────────────────────────
         if seg_probs is None:
             return [independent_recs], mask
 
-        # ── 3. Compose ────────────────────────────────────────────────────────
-        seg_expanded = seg_probs.unsqueeze(2)                              # (B, N, 1, H, W)
-        composed     = (independent_recs * seg_expanded).sum(dim=1)       # (B, C, H, W)
+        # ── 4. Compose ────────────────────────────────────────────────────────
+        seg_expanded = seg_probs.unsqueeze(2)                          # (B, N, 1, H, W)
+        composed     = (independent_recs * seg_expanded).sum(dim=1)    # (B, C, H, W)
 
-        # ── 4. Heal patch-boundary seams ──────────────────────────────────────
-        # SeamSmoother: two learnable 3x3 convs + residual.
-        # Zero-initialised at construction → identity at epoch 0.
-        # Gradient from the discriminator trains it to smooth seams specifically.
-        final_rec = self.seam_smoother(composed)
+        # ── 5. Stitch original visible patches back in ────────────────────────
+        # mask_pixels: 1 = was masked (decoder filled this), 0 = was visible (use original)
+        mask_pixels = self.expand_mask_to_pixels(mask)                 # (B, 1, H, W)
+        composited  = mask_pixels * composed + (1.0 - mask_pixels) * x # (B, C, H, W)
+
+        # ── 6. Heal seams between real and generated regions ──────────────────
+        final_rec = self.seam_smoother(composited)
+
+        # ── 7. Optionally expose components ───────────────────────────────────
+        if return_components:
+            return final_rec, independent_recs, mask
 
         return final_rec, mask
-
-    # ── Helpers ───────────────────────────────────────────────────────────────
+        # ── Helpers ───────────────────────────────────────────────────────────────
 
     @property
     def num_parameters(self) -> int:
