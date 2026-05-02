@@ -1,0 +1,854 @@
+\documentclass{article}
+
+% NeurIPS 2024 style
+\usepackage{neurips_2024}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsfonts}
+\usepackage{nicefrac}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{mathtools}
+\usepackage{graphicx}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{subcaption}
+\usepackage{multirow}
+\usepackage{wrapfig}
+
+% custom math operators
+\DeclareMathOperator*{\argmin}{arg\,min}
+\DeclareMathOperator*{\argmax}{arg\,max}
+\newcommand{\RR}{\mathbb{R}}
+\newcommand{\EE}{\mathbb{E}}
+\newcommand{\bx}{\mathbf{x}}
+\newcommand{\bw}{\mathbf{w}}
+\newcommand{\bp}{\mathbf{p}}
+\newcommand{\bA}{\mathbf{A}}
+\newcommand{\bs}{\mathbf{s}}
+
+\title{ComponentMAE: Unsupervised Image Segmentation via\\
+Routed Masked Autoencoders with Cross-Mask Consistency}
+
+\author{%
+  Ilias Paralikas \\
+  \texttt{paralikasilias@gmail.com}
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+We present \textbf{ComponentMAE}, a method for unsupervised image segmentation that
+combines a Masked Autoencoder (MAE) backbone with a differentiable routing network.
+The key insight is that if $N$ independent decoders are forced to each explain
+different spatial regions of an image, the segmentation boundaries that emerge from
+this competition reflect meaningful semantic structure---without any pixel-level
+annotation.
+
+ComponentMAE employs a shared Vision Transformer (ViT) encoder whose latent
+representations are routed, via soft segmentation maps produced by a UNet, to $N$
+component-specific MAE decoders.  The final reconstruction is a per-pixel weighted
+sum of component reconstructions, where the weights are the segmentation probabilities.
+Beyond the standard masked reconstruction objective, we introduce three novel
+training signals: (i) a \emph{component reconstruction loss} that assigns equal
+gradient to every decoder regardless of routing, preventing component collapse;
+(ii) a \emph{cross-mask consistency loss} (CM loss) that exploits complementary
+two-pass masking to penalise each decoder for failing to reconstruct patches it
+attended to in the complementary pass, with an area-normalisation that gives
+equal gradient to semantically small components; and (iii) a \emph{routing loss}
+that uses decoder reconstruction quality as a hard pseudo-label to train the
+segmentation UNet.  These signals are complemented by adversarial sharpening
+through a patch-level Wasserstein GAN with gradient penalty and feature-matching
+loss.  Together, these objectives induce segmentation maps that capture coherent,
+spatially contiguous semantic regions in a fully unsupervised manner.
+\end{abstract}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Introduction}
+\label{sec:intro}
+% ─────────────────────────────────────────────────────────────────────────────
+
+Image segmentation---partitioning an image into semantically coherent regions---is
+a cornerstone of computer vision.  Despite decades of progress, supervised
+segmentation methods remain expensive to apply to new domains because they require
+dense pixel-level annotations, which cost orders of magnitude more to collect than
+image-level labels.  This has motivated a sustained research interest in
+\emph{unsupervised} segmentation: discovering semantic structure without human
+labels.
+
+Recent self-supervised learning methods have dramatically closed the gap to
+supervised performance on downstream tasks.  Among these, Masked Autoencoders
+(MAE)~\cite{he2022masked} have emerged as a particularly powerful pre-training
+strategy: by masking a large fraction of image patches and training a ViT encoder--decoder
+to reconstruct the missing content, MAE forces the encoder to develop holistic
+semantic representations.  Crucially, this masking-and-reconstruction objective
+creates an information bottleneck---the encoder must distil global context into a
+compact latent that is then used by the decoder to ``hallucinate'' masked content.
+This property makes MAE an attractive backbone for segmentation: a decoder that
+successfully reconstructs a masked patch must be reasoning about the object to
+which that patch belongs.
+
+We exploit this property directly.  Instead of using MAE purely for pre-training
+a feature extractor, we \emph{integrate segmentation into the MAE training loop
+itself}.  ComponentMAE replaces the single MAE decoder with $N$ component-specific
+decoders whose contributions to the final reconstruction are weighted by a learned
+segmentation network.  If component decoder $n$ is responsible for reconstructing
+a car, it must receive car-related context from the encoder; if it is also asked to
+reconstruct road pixels, it faces a conflicting objective.  This competition drives
+the segmentation maps toward semantically consistent boundaries.
+
+The core technical challenges we address are:
+\begin{enumerate}
+  \item \textbf{Component collapse.}  With $N$ decoders, the trivially easy
+    solution is for one decoder to reconstruct everything and for the routing
+    network to assign weight~1 to it.  We prevent this via a dedicated
+    \emph{component reconstruction loss} that gives every decoder equal gradient
+    regardless of the routing.
+
+  \item \textbf{Gradient imbalance across component sizes.}  Semantic classes
+    cover very different fractions of the image---in urban street scenes, road
+    and sky dominate over pedestrians.  Naive losses give large-area classes
+    proportionally larger gradient, causing small classes to vanish.  We design
+    the \emph{cross-mask consistency loss} with an explicit area normalisation
+    that equalises the gradient contribution per component.
+
+  \item \textbf{Spatially smooth, sharp segmentation.}  Reconstruction objectives
+    alone tend to produce blurry, per-patch decisions.  We add total variation
+    regularisation on the segmentation maps and adversarial sharpening of the
+    reconstructed patches via a patch-level Wasserstein discriminator.
+
+  \item \textbf{Complementary information across passes.}  Standard MAE uses a
+    single masked pass, leaving exactly the visible patches unpenalised.  We
+    introduce a two-pass masking strategy with complementary masks so that
+    (a) every patch is reconstructed in exactly one of the two passes, and
+    (b) the attention maps from pass A can be used to construct a consistency
+    signal in pass B---the cross-mask consistency loss.
+\end{enumerate}
+
+Our contributions are:
+\begin{itemize}
+  \item The ComponentMAE architecture: a shared ViT encoder with $N$ parallel
+    MAE decoders routed by a UNet segmentation network.
+  \item The two-pass masking strategy enabling full-image gradient coverage.
+  \item The cross-mask consistency loss with area-independent weighting, derived
+    from decoder self-attention maps.
+  \item A component reconstruction (anti-collapse) loss with masked-patch
+    restriction.
+  \item A reconstruction-guided routing loss providing pseudo-labels from
+    decoder quality.
+  \item A patch-level WGAN-GP with feature matching for perceptual sharpness.
+\end{itemize}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Related Work}
+\label{sec:related}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\paragraph{Masked Autoencoders.}
+He~et~al.~\cite{he2022masked} introduced MAE, masking 75\% of image patches and
+training a ViT encoder--decoder to reconstruct raw pixel values in the masked
+positions.  The asymmetric design (heavy encoder, lightweight decoder) encourages
+the encoder to develop rich semantic representations.  BEiT~\cite{bao2022beit}
+similarly uses a masked prediction objective but predicts discrete visual tokens
+rather than raw pixels.  SimMIM~\cite{xie2022simmim} and MaskFeat~\cite{wei2022masked}
+explore alternative reconstruction targets including HOG features.  ComponentMAE
+differs from all of these in that it augments the MAE objective with a segmentation
+routing mechanism trained jointly with the reconstruction.
+
+\paragraph{DINO and self-distillation.}
+DINO~\cite{caron2021emerging} demonstrated that Vision Transformers trained with
+self-distillation produce attention maps that segment foreground objects without
+supervision.  DINOv2~\cite{oquab2024dinov2} scales this to large curated datasets.
+iBot~\cite{zhou2022image} combines masked image modelling with self-distillation.
+These methods require a teacher network and rely on emergent attention properties
+rather than explicitly optimising for segmentation.  ComponentMAE directly
+supervises segmentation maps through reconstruction quality.
+
+\paragraph{Unsupervised segmentation.}
+STEGO~\cite{hamilton2022unsupervised} propagates DINO features through a
+self-supervised correspondence loss to obtain dense segmentation.
+MaskContrast~\cite{van2021unsupervised} uses contrastive learning on saliency-guided
+superpixels.  PiCIE~\cite{cho2021picie} learns segmentation by enforcing
+photometric and geometric invariances.  HP~\cite{ke2022unsupervised} hierarchically
+partitions features.  These approaches treat segmentation as post-processing on
+pre-trained features; ComponentMAE instead \emph{co-trains} segmentation with
+reconstruction.  Closest in spirit to our work is the slot-attention
+line~\cite{locatello2020object,seitzer2022bridging}: Slot Attention decomposes
+scenes into $K$ learned ``slots'' through iterative attention, and DINOSAUR
+\cite{seitzer2022bridging} combines slots with DINO features for object-centric
+representation.  Our routing mechanism can be viewed as a non-iterative alternative
+to slot attention that integrates naturally with the MAE training loop.
+
+\paragraph{Segment Anything Model (SAM).}
+SAM~\cite{kirillov2023segment} trains a prompt-conditioned segmentation model on
+a massive curated dataset of 1B masks.  While powerful, SAM is not unsupervised---it
+requires extensive human annotation in its training set and relies on user prompts
+at inference.  ComponentMAE targets the regime where no annotations are available.
+
+\paragraph{GAN-based segmentation.}
+DatasetGAN~\cite{zhang2021datasetgan} and SemanticGAN~\cite{li2021semantic} extract
+segmentation from the internal activations of a pre-trained GAN generator.
+Barbershop~\cite{zhu2021barbershop} and related work exploit GAN latent spaces for
+semantic manipulation.  These methods are limited to the distribution captured by
+the GAN and require either the GAN training set or extensive latent optimisation.
+We use an adversarial discriminator only for perceptual sharpening, not as the
+primary segmentation mechanism.
+
+\paragraph{Feature matching in GANs.}
+Feature matching was introduced by Salimans~et~al.~\cite{salimans2016improved} as
+a training stabiliser.  Pix2pix~\cite{isola2017image} popularised perceptual feature
+matching in conditional image synthesis.  We apply feature matching specifically to
+masked patch reconstruction, weighting by cross-mask consistency importance weights,
+providing a content-aware perceptual loss that is more stable than the minimax
+objective alone.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Method}
+\label{sec:method}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\subsection{Architecture Overview}
+\label{sec:arch}
+
+\begin{figure}[t]
+  \centering
+  % Placeholder — replace with actual architecture diagram
+  \fbox{\parbox{0.95\textwidth}{\centering\vspace{3cm}
+  \textbf{[Architecture Figure Placeholder]}\\[4pt]
+  Left: shared ViT encoder processes visible patches from the two-pass masked
+  input.  Center: $N$ independent MAE decoders (one per component) produce
+  per-component patch reconstructions.  Right: UNet segmentation network
+  produces soft routing maps; the blended image is a weighted sum of
+  component images.  Bottom: loss terms and their connections to model
+  components.
+  \vspace{3cm}}}
+  \caption{ComponentMAE architecture.  A single ViT encoder is shared across all
+  $N$ component decoders.  The UNet segmentation network operates on the original
+  image and produces component probability maps that blend the decoder outputs into
+  the final reconstruction.  All modules are trained jointly via a composite loss.}
+  \label{fig:arch}
+\end{figure}
+
+ComponentMAE consists of three trainable modules (Figure~\ref{fig:arch}):
+
+\paragraph{Shared ViT encoder.}
+The encoder $f_\theta$ follows the standard MAE design~\cite{he2022masked}: a
+patch embedding layer projects each $P \times P$ image patch into a
+$d_\mathrm{enc}$-dimensional token; fixed 2D sinusoidal positional embeddings
+are added; then $L_\mathrm{enc}$ pre-LN transformer blocks process the
+\emph{visible} tokens only.  No CLS token is used.  We use
+$P\!=\!16$, $d_\mathrm{enc}\!=\!768$, $L_\mathrm{enc}\!=\!12$, $H_\mathrm{enc}\!=\!12$ heads
+for a total encoder depth equal to ViT-Base.
+
+Formally, given image $\bx \in \RR^{C \times H \times W}$ with $N_p = (H/P)^2$
+patches, the encoder produces:
+\begin{equation}
+  \mathbf{z} = f_\theta\!\left(\{\bx_i\}_{i \notin \mathcal{M}}\right)
+  \in \RR^{N_\mathrm{vis} \times d_\mathrm{enc}},
+\end{equation}
+where $\mathcal{M} \subset [N_p]$ is the set of masked patch indices and
+$N_\mathrm{vis} = N_p - |\mathcal{M}|$.
+
+\paragraph{Component decoders.}
+$N$ independent, parameter-disjoint MAE decoders
+$\{g_{\phi_n}\}_{n=1}^{N}$ each receive the same encoder latent $\mathbf{z}$.
+Each decoder: (1) projects $\mathbf{z}$ to the decoder dimension
+$d_\mathrm{dec} = 512$ via a linear layer; (2) inserts a learned
+mask token at each masked position and un-shuffles to the original patch
+order; (3) adds decoder positional embeddings; (4) runs
+$L_\mathrm{dec}$ pre-LN transformer blocks; (5) applies a linear prediction
+head to produce raw patch predictions $\hat{\bp}_n \in \RR^{N_p \times (C P^2)}$.
+We use $L_\mathrm{dec}\!=\!4$-$12$, $d_\mathrm{dec}\!=\!512$, $H_\mathrm{dec}\!=\!16$ heads.
+
+The image-space reconstruction for component $n$ is obtained by applying
+$\tanh$ and unpatchifying:
+\begin{equation}
+  \hat{\bx}_n = \mathrm{unpatchify}\!\left(\tanh(\hat{\bp}_n)\right)
+  \in \RR^{C \times H \times W}.
+\end{equation}
+
+\paragraph{Segmentation UNet.}
+A standard UNet $s_\psi$ with skip connections takes the full image as input
+and produces $N$ channel logits, which are passed through a channel-wise softmax:
+\begin{equation}
+  \mathbf{S} = \mathrm{softmax}(s_\psi(\bx)) \in \RR^{N \times H \times W},
+  \quad \sum_{n=1}^{N} S_n(r,c) = 1 \;\forall\, (r,c).
+\end{equation}
+$S_n(r,c)$ is the probability that pixel $(r,c)$ belongs to component $n$.
+
+\paragraph{Blended reconstruction.}
+The final reconstruction is the spatially-weighted sum:
+\begin{equation}
+  \hat{\bx} = \sum_{n=1}^{N} S_n \odot \hat{\bx}_n,
+  \label{eq:blend}
+\end{equation}
+where $\odot$ denotes element-wise multiplication with broadcasting over the channel dimension.
+
+\subsection{Two-Pass Masking Strategy}
+\label{sec:twopass}
+
+Standard MAE uses a single random mask, leaving visible patches completely
+unsupervised by the reconstruction objective.  We instead draw a single random
+binary mask $\mathbf{m}^A \in \{0,1\}^{N_p}$ with mask ratio $r\!=\!0.5$, and
+define the complementary mask $\mathbf{m}^B = \mathbf{1} - \mathbf{m}^A$.
+With a 50\% mask ratio, $\mathbf{m}^B$ has the same cardinality as $\mathbf{m}^A$,
+and their union covers \emph{all} patches:
+$\mathcal{M}_A \cup \mathcal{M}_B = [N_p]$,\ \  $\mathcal{M}_A \cap \mathcal{M}_B = \emptyset$.
+
+We run two forward passes through the encoder and all $N$ decoders:
+\begin{align}
+  \text{Pass A:} \quad &\hat{\bp}_n^A,\; \bA_n^A = g_{\phi_n}\!\left(f_\theta(\bx, \mathbf{m}^A),\; \mathbf{m}^A,\; \text{return\_attn=True}\right), \\
+  \text{Pass B:} \quad &\hat{\bp}_n^B = g_{\phi_n}\!\left(f_\theta(\bx, \mathbf{m}^B),\; \mathbf{m}^B\right),
+\end{align}
+where $\bA_n^A \in \RR^{N_p \times N_p}$ is the head-averaged self-attention matrix
+from the last transformer block of decoder $n$ during pass A.
+
+This design has two benefits.  First, every patch receives a reconstruction
+gradient in at least one pass.  Second, the visible patches in pass A become the
+\emph{reconstruction targets} in pass B, enabling the cross-mask consistency loss
+described in Section~\ref{sec:cmloss}.
+
+\subsection{Masked Reconstruction and Component Reconstruction Losses}
+\label{sec:reconloss}
+
+\paragraph{Masked reconstruction loss ($\mathcal{L}_\mathrm{rec}$).}
+The primary training signal is an MSE between the blended reconstruction
+(Eq.~\ref{eq:blend}) and the target image, restricted to masked patches only.
+Restricting to masked patches is essential: visible patches have their exact
+pixel values directly available to the encoder, so reconstruction there is
+trivially easy and provides no useful learning signal.
+
+\begin{equation}
+  \mathcal{L}_\mathrm{rec} = \frac{1}{|\mathcal{M}|} \sum_{i \in \mathcal{M}}
+  \left\|\hat{\bx}_{[i]} - \bx_{[i]}\right\|^2,
+\end{equation}
+where $\hat{\bx}_{[i]}$ and $\bx_{[i]}$ denote the pixels belonging to patch $i$.
+
+\paragraph{Component reconstruction loss ($\mathcal{L}_\mathrm{comp}$).}
+With $N$ independent decoders and a routing network, the trivially optimal solution
+is for one decoder to reconstruct everything while the routing network assigns weight
+1 to that decoder and 0 to the rest.  We call this \emph{component collapse}, and
+it prevents any useful segmentation from emerging.
+
+To prevent collapse, we apply a uniform-weight MSE to every decoder independently,
+\emph{before} blending, also restricted to masked patches:
+\begin{equation}
+  \mathcal{L}_\mathrm{comp} = \frac{1}{N} \sum_{n=1}^{N}
+  \frac{1}{|\mathcal{M}|} \sum_{i \in \mathcal{M}}
+  \left\|\hat{\bx}_{n,[i]} - \bx_{[i]}\right\|^2.
+\end{equation}
+Crucially, this loss does \emph{not} involve the segmentation weights $S_n$.
+Every decoder receives identical gradient from $\mathcal{L}_\mathrm{comp}$
+regardless of routing, ensuring that all decoders remain competent
+reconstructors and the routing network is not rewarded for simply suppressing
+all-but-one decoder.
+
+\subsection{Cross-Mask Consistency Loss}
+\label{sec:cmloss}
+
+\paragraph{Intuition.}
+In pass A, decoder $n$ reconstructs masked patch $j$ (e.g.\ a car window) by
+attending to visible patch $i$ (e.g.\ a car door).  If the segmentation network
+assigns high probability to component $n$ for patch $j$---meaning component $n$
+is primarily responsible for the car region---then the information in patch $i$
+must be relevant to component $n$'s semantic region.  In pass B, patch $i$ is
+masked.  We therefore \emph{penalise} decoder $n$ for failing to reconstruct
+patch $i$ in pass B, weighted by how much it relied on $i$ in pass A.
+
+\paragraph{Importance weights.}
+For component $n$ and visible-in-$A$ patch $i$, the importance weight is:
+\begin{equation}
+  w_n[i] = \sum_{j \in \mathcal{M}_A}
+  \frac{s_n[j]}{\bar{s}_n} \cdot \tilde{A}_n^A[j \to i],
+  \label{eq:cm_weight}
+\end{equation}
+where $s_n[j] = \frac{1}{P^2}\sum_{\text{pixels of }j} S_n$ is the mean
+segmentation probability of component $n$ over patch $j$, $\bar{s}_n =
+\frac{1}{N_p}\sum_i s_n[i]$ is the per-component mean (area fraction), and
+$\tilde{A}_n^A[j \to i]$ is the attention weight from masked query $j$ to
+visible key $i$, re-normalised so that attention to mask-token positions (which
+carry no content) is zeroed out:
+\begin{equation}
+  \tilde{A}_n^A[j \to i] = \frac{A_n^A[j,i] \cdot \mathbf{1}[i \notin \mathcal{M}_A]}
+  {\sum_{i'} A_n^A[j,i'] \cdot \mathbf{1}[i' \notin \mathcal{M}_A] + \epsilon}.
+\end{equation}
+
+\paragraph{Area-independent normalisation.}
+The term $1/\bar{s}_n$ in Eq.~\ref{eq:cm_weight} is the key novelty.  Without it,
+a component covering 50\% of the image (e.g.\ pavement) would receive ten times
+more total gradient than one covering 5\% (e.g.\ pedestrians), causing the small
+component to vanish or merge.  Dividing by the mean area fraction $\bar{s}_n$
+normalises the total importance weight per component:
+\begin{equation}
+  \sum_{i} w_n[i] \approx \sum_{j \in \mathcal{M}_A} \frac{s_n[j]}{\bar{s}_n}
+  \approx \frac{N_p \cdot \bar{s}_n}{\bar{s}_n} = N_p,
+\end{equation}
+making the expected total weight the same for all components regardless of their
+spatial coverage.
+
+\paragraph{Loss formulation.}
+Given the importance weights, the CM loss is a weighted MSE between pass-B
+decoder outputs (in raw patch space, before $\tanh$) and the target patches in
+pass-B masked positions (which were visible in pass A):
+\begin{equation}
+  \mathcal{L}_\mathrm{cm} = \frac{1}{N} \sum_{n=1}^{N}
+  \frac{\sum_{i} w_n[i] \cdot \left\|\hat{\bp}_n^B[i] - \bx_\mathrm{patch}[i]\right\|^2}
+  {\sum_{i} w_n[i] + \epsilon}.
+  \label{eq:cmloss}
+\end{equation}
+Pass-B decoder predictions $\hat{\bp}_n^B$ carry gradients through to the decoders
+and encoder; all other quantities ($w_n$, attention weights, segmentation
+probabilities) are \emph{detached} from the computational graph, so
+$\mathcal{L}_\mathrm{cm}$ trains only the reconstruction model.
+
+\paragraph{Patch-space comparison.}
+We intentionally compute Eq.~\ref{eq:cmloss} in raw patch space (decoder output
+before $\tanh$ and unpatchify) rather than in pixel space.  This avoids the
+$\tanh \to$ unpatchify $\to$ bilinear interpolation chain, which (a) introduces
+numerical rounding errors, and (b) saturates gradients through the $\tanh$
+nonlinearity.  Patch-space comparison gives cleaner, unsaturated gradients directly
+at the decoder prediction head.
+
+\subsection{Routing and Regularisation Losses}
+\label{sec:routing}
+
+\paragraph{Routing loss ($\mathcal{L}_\mathrm{route}$).}
+The segmentation UNet must be trained to assign high probability to the component
+that best explains each pixel.  We construct hard pseudo-labels by selecting, for
+each pixel, the component decoder with the lowest reconstruction MSE:
+\begin{equation}
+  \hat{y}(r,c) = \argmin_{n} \left(\hat{\bx}_n(r,c) - \bx(r,c)\right)^2,
+\end{equation}
+and train the UNet with cross-entropy loss:
+\begin{equation}
+  \mathcal{L}_\mathrm{route} = -\frac{1}{HW} \sum_{r,c}
+  \log S_{\hat{y}(r,c)}(r,c).
+\end{equation}
+Component images are detached when computing the pseudo-labels, so gradients flow
+only into the segmentation network $s_\psi$.
+
+\paragraph{Entropy loss ($\mathcal{L}_\mathrm{ent}$).}
+The softmax routing is susceptible to a second type of trivial solution: if the
+network always outputs uniform probabilities ($S_n \equiv 1/N$ everywhere), the
+blended reconstruction becomes the simple average of all component predictions, and
+no segmentation information is conveyed.  We therefore maximise the entropy of the
+routing distribution to encourage it to make confident, varied assignments:
+\begin{equation}
+  \mathcal{L}_\mathrm{ent} = \frac{1}{HW}\sum_{r,c}
+  \sum_{n=1}^{N} S_n(r,c) \log S_n(r,c),
+  \quad \text{(minimised $\Rightarrow$ higher entropy)}.
+\end{equation}
+This might appear contradictory to the cross-entropy routing loss, but the two
+operate on complementary aspects: $\mathcal{L}_\mathrm{route}$ pushes toward
+hard assignments at pixels where one decoder is clearly better; $\mathcal{L}_\mathrm{ent}$
+prevents the entire map from collapsing to a single component.
+
+\paragraph{Total variation loss ($\mathcal{L}_\mathrm{tv}$).}
+Segmentation maps produced per-patch tend to be spatially noisy.  We add isotropic
+total variation regularisation to encourage piecewise-smooth boundaries:
+\begin{equation}
+  \mathcal{L}_\mathrm{tv} = \frac{1}{N} \sum_{n=1}^{N}
+  \sum_{r,c} \left|S_n(r\!+\!1,c) - S_n(r,c)\right|
+           + \left|S_n(r,c\!+\!1) - S_n(r,c)\right|.
+\end{equation}
+
+\subsection{Adversarial Sharpness: Patch Discriminator and Feature Matching}
+\label{sec:adv}
+
+\paragraph{Patch discriminator.}
+Pixel-wise MSE losses are known to produce blurry reconstructions because they
+average over plausible high-frequency content~\cite{pathak2016context}.  We add
+a \emph{PatchDiscriminator} that evaluates each $P \times P$ patch independently,
+following the PatchGAN~\cite{isola2017image} design but operating in Wasserstein
+distance~\cite{arjovsky2017wasserstein}.
+
+The discriminator consists of three strided convolutions
+($16\to 8 \to 4 \to 2$ spatial resolution) with LeakyReLU activations and no
+batch normalisation (required by WGAN-GP~\cite{gulrajani2017improved}), followed
+by a linear prediction head.  It outputs a scalar score per patch.  Intermediate
+feature maps at each convolutional block are exposed for feature-matching loss.
+
+\paragraph{Wasserstein critic loss.}
+The discriminator (critic) is trained with:
+\begin{equation}
+  \mathcal{L}_D = \EE_{\tilde{\bx}}[D(\tilde{\bx})] - \EE_{\bx}[D(\bx)]
+  + \lambda_\mathrm{gp}\, \EE_{\hat{\bx}}\!\left[(\|\nabla_{\hat{\bx}} D(\hat{\bx})\|_2 - 1)^2\right]
+  + \lambda_\mathrm{drift}\, \EE_{\bx}[D(\bx)^2],
+\end{equation}
+where $\hat{\bx}$ are random convex combinations of real and fake patches
+(gradient penalty), and the drift term prevents the critic output from growing
+unbounded on real samples.  We use $\lambda_\mathrm{gp} = 10$ and
+$\lambda_\mathrm{drift} = 0.001$.  The critic is updated $N_\mathrm{critic} = 3$
+times per generator step.
+
+\paragraph{Feature-matching generator loss.}
+Rather than training the generator with the standard Wasserstein term
+$-\EE_{\tilde{\bx}}[D(\tilde{\bx})]$ alone, which leads to training instability
+in our setting (the generator is simultaneously optimised for many other losses),
+we use a \emph{feature-matching} generator loss~\cite{salimans2016improved}:
+\begin{equation}
+  \mathcal{L}_\mathrm{fm} = \frac{1}{L} \sum_{\ell=1}^{L}
+  \EE\!\left[\|D_\ell(\hat{\bx}) - D_\ell(\bx)\|^2\right],
+\end{equation}
+where $D_\ell(\cdot)$ are intermediate feature maps at layer $\ell$ of the
+discriminator, and real features are computed under \texttt{no\_grad}.  The
+generator is trained with:
+\begin{equation}
+  \mathcal{L}_G = \mathcal{L}_\mathrm{fm} + \alpha_\mathrm{rf} \cdot \mathcal{L}_\mathrm{wgan},
+  \label{eq:gloss}
+\end{equation}
+where $\mathcal{L}_\mathrm{wgan} = -\EE_{\tilde{\bx}}[D(\tilde{\bx})]$ and
+$\alpha_\mathrm{rf} = 0.1$ keeps the real/fake term as a minor contributor.
+
+This design is deliberate.  Pure feature matching with a fixed real target avoids
+the minimax game for the generator, preventing mode collapse and competing gradient
+signals.  The small real/fake term $\alpha_\mathrm{rf}$ closes a ``texture shortcut''
+loophole: without it, the generator could match discriminator features trivially
+by blurring, since feature distances are less sensitive to high frequencies than
+per-pixel MSE.  A small adversarial push forces the generator to also fool the
+critic, incentivising plausible high-frequency texture without destabilising training.
+
+\paragraph{Masked-patch restriction.}
+Adversarial losses are applied \emph{only to masked patches}.  Visible patches
+are copied directly from the input and need no sharpening; applying the discriminator
+to them would penalise the identity mapping.  Masked patches from both passes A
+and B are extracted as $K \times C \times P \times P$ tensors and fed to the
+discriminator as a batch.
+
+\subsection{Total Objective}
+\label{sec:total}
+
+The total loss splits across the three trainable modules:
+
+\paragraph{Reconstruction model ($f_\theta, \{g_{\phi_n}\}$):}
+\begin{equation}
+  \mathcal{L}_\text{rec-model} =
+    \lambda_\mathrm{rec}\, \mathcal{L}_\mathrm{rec}
+    + \lambda_\mathrm{comp}\, \mathcal{L}_\mathrm{comp}
+    + \lambda_\mathrm{cm}\,  \mathcal{L}_\mathrm{cm}
+    + \lambda_\mathrm{adv}\, \mathcal{L}_G.
+\end{equation}
+
+\paragraph{Segmentation network ($s_\psi$):}
+\begin{equation}
+  \mathcal{L}_\text{seg} =
+    \lambda_\mathrm{rec}\, \mathcal{L}_\mathrm{rec}
+    + \lambda_\mathrm{route}\, \mathcal{L}_\mathrm{route}
+    + \lambda_\mathrm{ent}\, \mathcal{L}_\mathrm{ent}
+    + \lambda_\mathrm{tv}\, \mathcal{L}_\mathrm{tv}.
+\end{equation}
+
+\paragraph{Discriminator ($D$):}
+\begin{equation}
+  \mathcal{L}_\text{disc} = \mathcal{L}_D.
+\end{equation}
+Note that $\mathcal{L}_\mathrm{rec}$ appears in both the reconstruction model and
+segmentation network objectives: the blended reconstruction (Eq.~\ref{eq:blend})
+depends on both the decoder outputs and the segmentation weights, so both modules
+receive gradient through it.  However, when computing $\mathcal{L}_\mathrm{route}$,
+the decoder images are detached so that only the segmentation network is trained
+by the pseudo-label signal.
+
+Algorithm~\ref{alg:training} summarises one training iteration.
+
+\begin{algorithm}[t]
+\caption{ComponentMAE training iteration}
+\label{alg:training}
+\begin{algorithmic}[1]
+\Require Batch $\{\bx_b\}_{b=1}^B$, models $f_\theta, \{g_{\phi_n}\}, s_\psi, D$
+\State Sample random mask $\mathbf{m}^A$;\ \ set $\mathbf{m}^B \gets \mathbf{1} - \mathbf{m}^A$
+\State $\mathbf{S} \gets \mathrm{softmax}(s_\psi(\bx))$ \Comment{segmentation probabilities}
+\State \textbf{Pass A:} $\hat{\bp}_n^A, \bA_n^A \gets g_{\phi_n}(f_\theta(\bx, \mathbf{m}^A))\ \ \forall n$, return attention
+\State Compute $\hat{\bx}_n \gets \mathrm{unpatchify}(\tanh(\hat{\bp}_n^A))\ \ \forall n$
+\State Compute blended reconstruction $\hat{\bx} \gets \sum_n S_n \odot \hat{\bx}_n$
+\State \textbf{Pass B:} $\hat{\bp}_n^B \gets g_{\phi_n}(f_\theta(\bx, \mathbf{m}^B))\ \ \forall n$
+\State \textbf{Discriminator step} ($N_\mathrm{critic}$ times):
+  \State \quad Extract masked patches: $\mathcal{R}^A, \mathcal{F}^A$, $\mathcal{R}^B, \mathcal{F}^B$
+  \State \quad $\mathcal{L}_D \gets \mathrm{WassersteinCritic}(\mathcal{R}, \mathcal{F})$;\ \ update $D$
+\State \textbf{Compute reconstruction model losses:}
+  \State \quad $\mathcal{L}_\mathrm{rec} \gets \mathrm{MaskedMSE}(\hat{\bx}, \bx, \mathbf{m}^A)$
+  \State \quad $\mathcal{L}_\mathrm{comp} \gets \frac{1}{N}\sum_n \mathrm{MaskedMSE}(\hat{\bx}_n, \bx, \mathbf{m}^A)$
+  \State \quad $\{w_n\} \gets \mathrm{CMWeights}(\mathbf{S}, \bA_n^A, \mathbf{m}^A)$
+  \State \quad $\mathcal{L}_\mathrm{cm} \gets \frac{1}{N}\sum_n \mathrm{WeightedMSE}(\hat{\bp}_n^B, \bx_\mathrm{patch}, w_n)$
+  \State \quad $\mathcal{L}_G \gets \mathrm{FeatureMatching}(D, \mathcal{R}, \mathcal{F})$
+  \State \quad Update $f_\theta, \{g_{\phi_n}\}$ with $\nabla(\lambda_\mathrm{rec}\mathcal{L}_\mathrm{rec} + \lambda_\mathrm{comp}\mathcal{L}_\mathrm{comp} + \lambda_\mathrm{cm}\mathcal{L}_\mathrm{cm} + \lambda_\mathrm{adv}\mathcal{L}_G)$
+\State \textbf{Compute segmentation network losses:}
+  \State \quad $\mathcal{L}_\mathrm{route} \gets \mathrm{CrossEntropy}(\mathbf{S}, \argmin_n \mathrm{MSE}(\hat{\bx}_n^{\text{det}}, \bx))$
+  \State \quad $\mathcal{L}_\mathrm{ent} \gets \mathrm{Entropy}(\mathbf{S})$;\ \ $\mathcal{L}_\mathrm{tv} \gets \mathrm{TV}(\mathbf{S})$
+  \State \quad Update $s_\psi$ with $\nabla(\lambda_\mathrm{rec}\mathcal{L}_\mathrm{rec} + \lambda_\mathrm{route}\mathcal{L}_\mathrm{route} + \lambda_\mathrm{ent}\mathcal{L}_\mathrm{ent} + \lambda_\mathrm{tv}\mathcal{L}_\mathrm{tv})$
+\end{algorithmic}
+\end{algorithm}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Training Details}
+\label{sec:training}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\paragraph{Dataset.}
+We train on the Cityscapes dataset~\cite{cordts2016cityscapes}, which contains
+19,998 training images of urban driving scenes at $256 \times 256$ resolution
+after cropping and resizing.  No semantic labels are used during training;
+Cityscapes annotations serve only for qualitative evaluation.
+
+\paragraph{Architecture hyperparameters.}
+The ViT encoder uses $d_\mathrm{enc}\!=\!768$, $L_\mathrm{enc}\!=\!12$,
+$H_\mathrm{enc}\!=\!12$ (ViT-Base scale), $P\!=\!16$, yielding $N_p\!=\!256$ patches
+per image.  Each MAE decoder uses $d_\mathrm{dec}\!=\!512$, $L_\mathrm{dec}\!=\!4$--$12$
+(configuration-dependent), $H_\mathrm{dec}\!=\!16$.  The total parameter count
+for a single-component model (encoder + one decoder) is approximately 124M.
+
+The segmentation UNet uses a channel progression
+$[256, 128, 64, 32, 32, 32, 16]$ with residual blocks and 4 skipped skip
+connections (bottom-up path only), yielding approximately 4.2M parameters.
+The PatchDiscriminator has approximately 660K parameters.
+
+\paragraph{Optimiser and learning rate.}
+All three modules use Adam optimiser.  The reconstruction model (encoder + decoders)
+and segmentation UNet use learning rate $10^{-4}$.  The discriminator uses
+$\text{lr}\!=\!10^{-4}$ with Adam betas $(0.0, 0.9)$ as recommended for
+WGAN-GP~\cite{gulrajani2017improved}.
+
+\paragraph{Loss weights.}
+We use $\lambda_\mathrm{rec}\!=\!10$, $\lambda_\mathrm{comp}\!=\!0.1$,
+$\lambda_\mathrm{cm}\!=\!0.1$ (ramped linearly from 0 over the first 10 epochs),
+$\lambda_\mathrm{route}\!=\!0.01$, $\lambda_\mathrm{ent}\!=\!0.01$,
+$\lambda_\mathrm{tv}\!=\!0.01$, $\lambda_\mathrm{adv}\!=\!0.01$,
+$\alpha_\mathrm{rf}\!=\!0.1$.  The CM weight ramp prevents the CM loss from
+interfering with early-stage reconstruction learning before the decoder
+attention maps are meaningful.
+
+\paragraph{Mask ratio.}
+We use a mask ratio of $r\!=\!0.5$, lower than the typical 0.75 used in MAE
+pre-training.  The lower ratio is motivated by the two-pass strategy: with
+$r\!=\!0.5$, each pass sees exactly half the patches, and pass B's masked patches
+are exactly pass A's visible patches.  At $r\!=\!0.75$, the passes would overlap,
+reducing the CM loss signal.
+
+\paragraph{Dropout.}
+We apply dropout $p\!=\!0.2$ inside transformer attention and MLP blocks to
+regularise the large encoder.
+
+\paragraph{Training duration.}
+Models are trained for 100 epochs with a batch size of 8, corresponding to
+250K gradient steps.  Checkpoints of all three models are saved after each epoch.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Discussion}
+\label{sec:discussion}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\paragraph{Why MAE and not contrastive learning?}
+Contrastive methods (SimCLR, MoCo, DINO) produce image-level or patch-level
+representations that are excellent for classification but lack the spatial
+structure needed for dense prediction: their loss functions explicitly discard
+positional information via global pooling or CLS aggregation.  MAE, by contrast,
+must reconstruct \emph{specific spatial locations}, forcing the representation
+to retain positional and structural information.  This makes it a natural fit
+for a segmentation objective that operates in the spatial domain.
+
+\paragraph{Information flow and gradient paths.}
+The gradient structure of ComponentMAE is carefully designed to avoid shortcutting.
+The blended reconstruction loss $\mathcal{L}_\mathrm{rec}$ trains both the decoders
+(to reconstruct well) and the segmentation network (to assign high weight to the
+best-reconstructing component).  However, if we also trained the decoders via
+$\mathcal{L}_\mathrm{rec}$'s gradient through the segmentation weights, the
+decoders could specialise to produce outputs that are \emph{easy to blend} rather
+than outputs that correctly segment.  In practice we find it beneficial to detach
+the independent reconstructions when flowing gradient into the segmentation network,
+so that the routing network is trained solely on the quality signal, not on decoder
+specialisation artefacts.
+
+\paragraph{The two collapses and their cures.}
+ComponentMAE must resist two failure modes: (1)~\emph{component collapse}, where
+one decoder handles everything --- cured by $\mathcal{L}_\mathrm{comp}$; and
+(2)~\emph{entropy collapse}, where all routing weights are uniform --- cured by
+$\mathcal{L}_\mathrm{ent}$ and $\mathcal{L}_\mathrm{route}$.  The tension between
+these objectives acts as a force toward interesting intermediate states where
+components are distinct but their spatial coverage is non-trivial.
+
+\paragraph{Scalability.}
+The parameter cost scales as $O(N)$ in the number of components, since each
+component requires an independent decoder.  The attention extraction needed
+for the CM loss adds one additional forward pass through the last decoder
+block per component.  Both scale linearly and remain tractable for
+$N \leq 16$ components on contemporary hardware.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Conclusion}
+\label{sec:conclusion}
+% ─────────────────────────────────────────────────────────────────────────────
+
+We have presented ComponentMAE, a method for unsupervised image segmentation that
+integrates a differentiable routing mechanism directly into the Masked Autoencoder
+training loop.  The system comprises a shared ViT encoder, $N$ independent MAE
+decoders, and a UNet segmentation network trained jointly via a suite of
+complementary objectives: masked reconstruction, component anti-collapse,
+cross-mask consistency with area-independent weighting, reconstruction-guided
+routing, entropy regularisation, total variation, and adversarial patch sharpening.
+
+The key insight is that if different parts of an image are better explained by
+different decoders, the spatial boundaries of this explanatory advantage should
+correspond to semantic boundaries.  The cross-mask consistency loss makes this
+insight operational: by exploiting the attention maps that decoders produce
+internally, it rewards each decoder for attending to visually consistent context
+across complementary masked views---without any labels.
+
+Future work includes: scaling to larger numbers of components and higher resolution;
+integrating hierarchical segmentation (coarse-to-fine routing); replacing the
+hand-tuned loss weights with a learned multi-task weighting scheme; and applying
+ComponentMAE to domains beyond natural images where annotation is expensive (e.g.\
+medical imaging, satellite remote sensing).
+
+% ─────────────────────────────────────────────────────────────────────────────
+\bibliographystyle{plain}
+\bibliography{references}
+
+% Inline bibliography for self-contained draft (remove when using .bib file)
+\begin{thebibliography}{99}
+
+\bibitem{he2022masked}
+Kaiming He, Xinlei Chen, Saining Xie, Yanghao Li, Piotr Doll{\'a}r, and
+Ross Girshick.
+\newblock Masked autoencoders are scalable vision learners.
+\newblock In \emph{CVPR}, 2022.
+
+\bibitem{bao2022beit}
+Hangbo Bao, Li Dong, Songhao Piao, and Furu Wei.
+\newblock BEiT: BERT pre-training of image transformers.
+\newblock In \emph{ICLR}, 2022.
+
+\bibitem{xie2022simmim}
+Zhenda Xie, Zheng Zhang, Yue Cao, Yutong Lin, Jianmin Bao, Zhuliang Yao,
+Qi Dai, and Han Hu.
+\newblock SimMIM: A simple framework for masked image modeling.
+\newblock In \emph{CVPR}, 2022.
+
+\bibitem{wei2022masked}
+Chen Wei, Haoqi Fan, Saining Xie, Chao-Yuan Wu, Alan Yuille, and Christoph
+Feichtenhofer.
+\newblock Masked feature prediction for self-supervised visual pre-training.
+\newblock In \emph{CVPR}, 2022.
+
+\bibitem{caron2021emerging}
+Mathilde Caron, Hugo Touvron, Ishan Misra, Herv{\'e} J{\'e}gou, Julien Mairal,
+Piotr Bojanowski, and Armand Joulin.
+\newblock Emerging properties in self-supervised vision transformers.
+\newblock In \emph{ICCV}, 2021.
+
+\bibitem{oquab2024dinov2}
+Maxime Oquab, Timoth{\'e}e Darcet, Th{\'e}o Moutakanni, Huy V. Vo,
+Marc Szafraniec, Vasil Khalidov, Pierre Fernandez, Daniel Haziza, Francisco
+Massa, Alaaeldin El-Nouby, et~al.
+\newblock DINOv2: Learning robust visual features without supervision.
+\newblock \emph{TMLR}, 2024.
+
+\bibitem{zhou2022image}
+Jinghao Zhou, Chen Wei, Huiyu Wang, Wei Shen, Cihang Xie, Alan Yuille, and
+Tao Kong.
+\newblock iBOT: Image BERT pre-training with online tokenizer.
+\newblock In \emph{ICLR}, 2022.
+
+\bibitem{hamilton2022unsupervised}
+Mark Hamilton, Zhoutong Zhang, Bharath Hariharan, Noah Snavely, and
+William T. Freeman.
+\newblock Unsupervised semantic segmentation by distilling feature correspondences.
+\newblock In \emph{ICLR}, 2022.
+
+\bibitem{van2021unsupervised}
+Wouter Van Gansbeke, Simon Vandeghen, Maxim Berman, Marc Proesmans, and
+Luc Van~Gool.
+\newblock Unsupervised semantic segmentation by contrasting object mask proposals.
+\newblock In \emph{ICCV}, 2021.
+
+\bibitem{cho2021picie}
+Jang Hyun Cho, Utkarsh Mall, Kavita Bala, and Bharath Hariharan.
+\newblock PiCIE: Unsupervised semantic segmentation using invariance and
+equivariance in clustering.
+\newblock In \emph{CVPR}, 2021.
+
+\bibitem{ke2022unsupervised}
+Lei Ke, Mingqiao Ye, Martin Danelljan, Yifan Liu, Yu-Wing Tai, Chi-Keung Tang,
+and Fisher Yu.
+\newblock Unsupervised hierarchical semantic segmentation with multiview cosegmentation and clustering transformers.
+\newblock In \emph{CVPR}, 2022.
+
+\bibitem{locatello2020object}
+Francesco Locatello, Dirk Weissenborn, Thomas Unterthiner, Aravindh Mahendran,
+Georg Heigold, Jakob Uszkoreit, Alexey Dosovitskiy, and Thomas Kipf.
+\newblock Object-centric learning with slot attention.
+\newblock In \emph{NeurIPS}, 2020.
+
+\bibitem{seitzer2022bridging}
+Maximilian Seitzer, Max Welling, and Georg Martius.
+\newblock Bridging the gap to real-world object-centric learning.
+\newblock In \emph{ICLR}, 2023.
+
+\bibitem{kirillov2023segment}
+Alexander Kirillov, Eric Mintun, Nikhila Ravi, Hanzi Mao, Chloe Rolland,
+Laura Gustafson, Tete Xiao, Spencer Whitehead, Alexander C. Berg,
+Wan-Yen Lo, Piotr Doll{\'a}r, and Ross Girshick.
+\newblock Segment anything.
+\newblock In \emph{ICCV}, 2023.
+
+\bibitem{zhang2021datasetgan}
+Yuxuan Zhang, Huan Ling, Jun Gao, Kangxue Yin, Jean-Francois Lafleche,
+Adela Barriuso, Antonio Torralba, and Sanja Fidler.
+\newblock DatasetGAN: Efficient labeled data factory with minimal human effort.
+\newblock In \emph{CVPR}, 2021.
+
+\bibitem{li2021semantic}
+Guangyao Li, Hengshuang Zhao, Yucheng Zhu, Wancheng Zhu, Lihi Zelnik-Manor,
+and Luc Van~Gool.
+\newblock SemanticGAN: Learning semantic segmentation from unlabeled scenes.
+\newblock arXiv:2104.00841, 2021.
+
+\bibitem{zhu2021barbershop}
+Peihao Zhu, Rameen Abdal, John Femiani, and Peter Wonka.
+\newblock Barbershop: GAN-based image compositing using segmentation masks.
+\newblock \emph{ACM TOG}, 40(6), 2021.
+
+\bibitem{salimans2016improved}
+Tim Salimans, Ian Goodfellow, Wojciech Zaremba, Vicki Cheung, Alec Radford,
+and Xi Chen.
+\newblock Improved techniques for training GANs.
+\newblock In \emph{NeurIPS}, 2016.
+
+\bibitem{isola2017image}
+Phillip Isola, Jun-Yan Zhu, Tinghui Zhou, and Alexei A. Efros.
+\newblock Image-to-image translation with conditional adversarial networks.
+\newblock In \emph{CVPR}, 2017.
+
+\bibitem{arjovsky2017wasserstein}
+Martin Arjovsky, Soumith Chintala, and L{\'e}on Bottou.
+\newblock Wasserstein generative adversarial networks.
+\newblock In \emph{ICML}, 2017.
+
+\bibitem{gulrajani2017improved}
+Ishaan Gulrajani, Faruk Ahmed, Martin Arjovsky, Vincent Dumoulin, and
+Aaron Courville.
+\newblock Improved training of Wasserstein GANs.
+\newblock In \emph{NeurIPS}, 2017.
+
+\bibitem{pathak2016context}
+Deepak Pathak, Philipp Krahenbuhl, Jeff Donahue, Trevor Darrell, and Alexei A.
+Efros.
+\newblock Context encoders: Feature learning by inpainting.
+\newblock In \emph{CVPR}, 2016.
+
+\bibitem{cordts2016cityscapes}
+Marius Cordts, Mohamed Omran, Sebastian Ramos, Timo Rehfeld, Markus Enzweiler,
+Rodrigo Benenson, Uwe Franke, Stefan Roth, and Bernt Schiele.
+\newblock The Cityscapes dataset for semantic urban scene understanding.
+\newblock In \emph{CVPR}, 2016.
+
+\end{thebibliography}
+
+\end{document}

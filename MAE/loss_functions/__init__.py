@@ -1,1 +1,5 @@
 from .reconstruction_loss import MAEReconstructionLoss
+from .cross_mask_consistency_loss import CrossMaskConsistencyLoss
+from .component_reconstruction_loss import ComponentReconstructionLoss
+from .routing_loss import RoutingLoss
+from .masked_reconstruction_loss import MaskedReconstructionLoss

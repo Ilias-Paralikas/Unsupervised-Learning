@@ -1,39 +1,28 @@
 import torch
 import torch.nn as nn
 
-from .modules import (
-    TransformerBlock,
-    build_2d_sincos_pos_embed,
-)
+from .modules import TransformerBlock, build_2d_sincos_pos_embed
 
 
 class MAEDecoder(nn.Module):
     """
-    MAE Decoder: lightweight transformer that reconstructs *all* N patches.
+    MAE Decoder — no CLS token.
 
-    The decoder is much shallower than the encoder (8 vs. 12 blocks in ViT-B)
-    and uses a narrower embedding dimension (512 vs. 768), making pre-training
-    computationally efficient.
+    Normal forward
+    --------------
+    pred = decoder(latent, ids_restore)
+        → (B, N, patch_dim)
 
-    Pipeline:
-        1. Project encoder embedding (D_enc) → decoder embedding (D_dec)
-        2. Insert learnable [MASK] tokens at masked positions
-        3. Un-shuffle the sequence back to the original patch order
-        4. Add fixed 2-D sin-cos positional embeddings to all tokens
-        5. L × TransformerBlock
-        6. LayerNorm
-        7. Linear prediction head → C × P × P pixel values per patch
+    Attention-tracking forward
+    --------------------------
+    pred, attn_weights = decoder(latent, ids_restore, return_attn=True)
+        attn_weights : (B, N_full, N_full)  — averaged over heads,
+                       from the LAST transformer block only.
 
-    Args:
-        num_patches          (int):   Total number of patches N = (H/P)².
-        encoder_embed_dim    (int):   Encoder output dimension (for the projection).
-        decoder_embed_dim    (int):   Decoder internal dimension.
-        depth                (int):   Number of transformer blocks.
-        num_heads            (int):   Attention heads per block.
-        mlp_ratio            (float): FFN hidden-dim expansion factor.
-        patch_size           (int):   Patch height = width P.
-        in_channels          (int):   Input image channels C.
-        dropout              (float): Dropout in attention / FFN.
+    This is used by ComponentMAE to build the cross-mask consistency
+    loss weight: rows corresponding to originally-masked patches tell
+    us which visible patches each component "looked at" to reconstruct
+    those positions.
     """
 
     def __init__(
@@ -52,44 +41,27 @@ class MAEDecoder(nn.Module):
         self.decoder_embed_dim = decoder_embed_dim
         self.num_patches       = num_patches
         self.grid_size         = int(num_patches ** 0.5)
+        self.patch_dim         = in_channels * patch_size * patch_size
 
-        # Number of pixel values the decoder predicts per patch
-        self.patch_dim = in_channels * patch_size * patch_size
-
-        # ── Encoder-to-decoder dimension projection ───────────────────────────
-        self.proj = nn.Linear(encoder_embed_dim, decoder_embed_dim, bias=True)
-
-        # ── Learnable [MASK] token ────────────────────────────────────────────
+        self.proj       = nn.Linear(encoder_embed_dim, decoder_embed_dim, bias=True)
         self.mask_token = nn.Parameter(torch.zeros(1, 1, decoder_embed_dim))
 
-        # ── Positional embedding (fixed, not learned) ─────────────────────────
-        # Shape: (1, N+1, D_dec).  CLS position is index 0.
+        # No CLS → pos embed shape (1, N, D)
         pos_embed = build_2d_sincos_pos_embed(
             embed_dim=decoder_embed_dim,
             grid_size=self.grid_size,
-            cls_token=True,
+            cls_token=False,
         )
         self.register_buffer("pos_embed", pos_embed)
 
-        # ── Transformer blocks ────────────────────────────────────────────────
         self.blocks = nn.ModuleList([
-            TransformerBlock(
-                embed_dim=decoder_embed_dim,
-                num_heads=num_heads,
-                mlp_ratio=mlp_ratio,
-                dropout=dropout,
-            )
+            TransformerBlock(decoder_embed_dim, num_heads, mlp_ratio, dropout)
             for _ in range(depth)
         ])
-
-        self.norm = nn.LayerNorm(decoder_embed_dim, eps=1e-6)
-
-        # ── Pixel prediction head ─────────────────────────────────────────────
+        self.norm     = nn.LayerNorm(decoder_embed_dim, eps=1e-6)
         self.pred_head = nn.Linear(decoder_embed_dim, self.patch_dim, bias=True)
 
         self._init_weights()
-
-    # ── weight initialisation ─────────────────────────────────────────────────
 
     def _init_weights(self):
         nn.init.normal_(self.mask_token, std=0.02)
@@ -102,83 +74,70 @@ class MAEDecoder(nn.Module):
                 nn.init.ones_(m.weight)
                 nn.init.zeros_(m.bias)
 
-    # ── helpers ───────────────────────────────────────────────────────────────
-
     def _restore_full_sequence(
         self,
-        latent:      torch.Tensor,
-        ids_restore: torch.Tensor,
+        latent:      torch.Tensor,   # (B, N_vis, D_dec)  — already projected
+        ids_restore: torch.Tensor,   # (B, N)
     ) -> torch.Tensor:
         """
-        Inserts [MASK] tokens at the masked positions and restores the original
-        patch ordering produced by the encoder's RandomMasking.
+        Fills masked positions with self.mask_token and un-shuffles to
+        the original patch order.  No CLS token.
 
-        Args:
-            latent:      (B, N_vis+1, D_dec) — projected visible tokens + CLS
-            ids_restore: (B, N)              — inverse permutation from the encoder
-
-        Returns:
-            tokens: (B, N+1, D_dec) — full sequence in original patch order,
-                                       with CLS token at position 0
+        Returns (B, N, D_dec).
         """
-        B       = latent.shape[0]
-        N       = ids_restore.shape[1]          # total patches
-        N_vis   = latent.shape[1] - 1           # subtract CLS
-        N_mask  = N - N_vis
-        D       = self.decoder_embed_dim
+        B, N_vis, D = latent.shape
+        N            = ids_restore.shape[1]
+        N_mask       = N - N_vis
 
-        # Expand the single mask token across all masked positions
-        mask_tokens = self.mask_token.expand(B, N_mask, -1)            # (B, N_mask, D)
+        mask_tokens  = self.mask_token.expand(B, N_mask, -1)          # (B, N_mask, D)
+        tokens_full  = torch.cat([latent, mask_tokens], dim=1)         # (B, N, D)
 
-        # Concatenate in the shuffled order: [visible (no CLS) | mask tokens]
-        tokens_no_cls = latent[:, 1:, :]                               # (B, N_vis, D)
-        tokens_full   = torch.cat([tokens_no_cls, mask_tokens], dim=1) # (B, N, D)
-
-        # Un-shuffle back to original patch order
-        tokens_full = torch.gather(
+        # Un-shuffle
+        tokens_full  = torch.gather(
             tokens_full,
             dim=1,
             index=ids_restore.unsqueeze(-1).expand(-1, -1, D),
         )  # (B, N, D)
 
-        # Re-prepend the CLS token
-        cls         = latent[:, :1, :]                                  # (B, 1, D)
-        tokens_full = torch.cat([cls, tokens_full], dim=1)              # (B, N+1, D)
-
         return tokens_full
-
-    # ── forward ───────────────────────────────────────────────────────────────
 
     def forward(
         self,
         latent:      torch.Tensor,
         ids_restore: torch.Tensor,
-    ) -> torch.Tensor:
+        return_attn: bool = False,
+    ):
         """
-        Args:
-            latent:      (B, N_vis+1, D_enc) — encoder output
-            ids_restore: (B, N)              — from MAEEncoder.forward()
+        Parameters
+        ----------
+        latent      : (B, N_vis, D_enc)
+        ids_restore : (B, N)
+        return_attn : if True, also return head-averaged attention from
+                      the last transformer block, shape (B, N, N).
 
-        Returns:
-            pred: (B, N, patch_dim) — predicted pixel values for *all* patches
+        Returns
+        -------
+        pred         : (B, N, patch_dim)
+        attn_weights : (B, N, N)   — only when return_attn=True
         """
-        # 1. Project encoder dim → decoder dim
-        latent = self.proj(latent)                                      # (B, N_vis+1, D_dec)
+        latent = self.proj(latent)                                  # (B, N_vis, D_dec)
+        tokens = self._restore_full_sequence(latent, ids_restore)   # (B, N, D_dec)
+        tokens = tokens + self.pos_embed                            # add pos enc
 
-        # 2. Insert [MASK] tokens and restore original ordering
-        tokens = self._restore_full_sequence(latent, ids_restore)       # (B, N+1, D_dec)
+        last_attn = None
+        for i, block in enumerate(self.blocks):
+            is_last = (i == len(self.blocks) - 1)
+            if return_attn and is_last:
+                tokens, last_attn = block(tokens, return_attn=True) # (B, H, N, N)
+            else:
+                tokens = block(tokens)
 
-        # 3. Add decoder positional embeddings to all tokens (including CLS)
-        tokens = tokens + self.pos_embed                                # (B, N+1, D_dec)
+        tokens = self.norm(tokens)                                  # (B, N, D_dec)
+        pred   = self.pred_head(tokens)                             # (B, N, patch_dim)
 
-        # 4. Transformer blocks
-        for block in self.blocks:
-            tokens = block(tokens)
-
-        # 5. LayerNorm
-        tokens = self.norm(tokens)                                      # (B, N+1, D_dec)
-
-        # 6. Pixel prediction (CLS token is discarded)
-        pred = self.pred_head(tokens[:, 1:, :])                        # (B, N, patch_dim)
+        if return_attn:
+            # Average over heads → (B, N, N)
+            attn_weights = last_attn.mean(dim=1)
+            return pred, attn_weights
 
         return pred

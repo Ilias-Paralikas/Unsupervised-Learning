@@ -7,23 +7,13 @@ from .feed_forward import FeedForward
 
 class TransformerBlock(nn.Module):
     """
-    Standard ViT transformer block with Pre-LayerNorm (Pre-LN) residual connections.
+    Pre-LN transformer block.
 
-    Architecture:
-        x ← x + MHSA(LN(x))
-        x ← x + FFN(LN(x))
-
-    Pre-LN is used throughout both the encoder and decoder as in the MAE paper.
-
-    Args:
-        embed_dim  (int):   Token embedding dimension.
-        num_heads  (int):   Number of self-attention heads.
-        mlp_ratio  (float): FFN hidden-dim expansion factor.  Default 4.0.
-        dropout    (float): Dropout for both attention weights and FFN activations.
-        bias       (bool):  Bias in attention / FFN projections and LayerNorm.
-
-    Input:  (B, N, D)
-    Output: (B, N, D)
+    Extra flag
+    ----------
+    return_attn : bool
+        Propagated to the inner MHSA.  When True, forward() returns
+        (out, attn_weights).
     """
 
     def __init__(
@@ -35,30 +25,18 @@ class TransformerBlock(nn.Module):
         bias:      bool  = True,
     ):
         super().__init__()
-
         self.norm1 = nn.LayerNorm(embed_dim, eps=1e-6)
-        self.attn  = MultiHeadSelfAttention(
-            embed_dim=embed_dim,
-            num_heads=num_heads,
-            dropout=dropout,
-            bias=bias,
-        )
-
+        self.attn  = MultiHeadSelfAttention(embed_dim, num_heads, dropout, bias)
         self.norm2 = nn.LayerNorm(embed_dim, eps=1e-6)
-        self.ffn   = FeedForward(
-            embed_dim=embed_dim,
-            mlp_ratio=mlp_ratio,
-            dropout=dropout,
-            bias=bias,
-        )
+        self.ffn   = FeedForward(embed_dim, mlp_ratio, dropout, bias)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Args:
-            x: (B, N, D)
-        Returns:
-            out: (B, N, D)
-        """
-        x = x + self.attn(self.norm1(x))
-        x = x + self.ffn(self.norm2(x))
-        return x
+    def forward(self, x: torch.Tensor, return_attn: bool = False):
+        if return_attn:
+            attn_out, attn_weights = self.attn(self.norm1(x), return_attn=True)
+            x = x + attn_out
+            x = x + self.ffn(self.norm2(x))
+            return x, attn_weights          # (B, H, N, N)
+        else:
+            x = x + self.attn(self.norm1(x))
+            x = x + self.ffn(self.norm2(x))
+            return x
